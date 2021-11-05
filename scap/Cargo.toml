@@ -1,0 +1,9 @@
+[package]
+name = "scap"
+version = "0.1.0"
+authors = ["Sam Noedel <sam.noedel@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+ffmpeg-sys-next = "^4.4.0"
+nix = "^0.22.0"

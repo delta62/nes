@@ -1,0 +1,9 @@
+[package]
+name = "pcm"
+version = "0.1.0"
+authors = ["Sam Noedel <sam.noedel@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+alsa-sys = "^0.3.1"
+nix = "^0.22.0"

@@ -1,0 +1,39 @@
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.52.0
+        environment:
+          DEBIAN_FRONTEND: noninteractive
+    steps:
+      - checkout
+      - run:
+          name: Print versions
+          command: |
+            lsb_release -a
+            cargo --version
+            rustc --version
+      - run:
+          name: Install development headers
+          command: |
+            sudo apt update
+            sudo apt install cmake \
+                             libasound2-dev \
+                             libglfw3-dev \
+                             libx11-dev \
+                             libxrandr-dev \
+                             libxinerama-dev \
+                             libxcursor-dev \
+                             libxi-dev \
+                             libavutil-dev \
+                             libavformat-dev \
+                             libavfilter-dev \
+                             libavdevice-dev \
+                             libclang-11-dev
+      - run:
+          name: Build
+          command: cargo build
+      - run:
+          name: Unit tests
+          command: cargo test

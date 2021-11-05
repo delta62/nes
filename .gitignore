@@ -1,0 +1,10 @@
+target/
+**/*.rs.bk
+flamegraph.svg
+perf.data*
+*.log
+imgui.ini
+*.png
+*.mp3
+*.mp4
+*.wav
