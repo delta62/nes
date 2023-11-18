@@ -1,42 +1,6 @@
+use bitflags::bitflags;
 use crate::mem::Mem;
-use log::debug;
 use getset::{CopyGetters, Getters};
-
-/// The carry flag is somewhat overloaded in meaning, but it typically means
-/// that during the previous operation the high bit of the operand was set and
-/// shifted out, either due to a shift operation or some mathematical process.
-/// See the documentation for the specific op code to understand what this flag
-/// means in practice.
-const CARRY_FLAG: u8 = 1;
-
-/// The zero flag indicates that the last operation resulted in a zero value.
-const ZERO_FLAG: u8 = 1 << 1;
-
-/// The IRQ disable flag prevents interrupts from being serviced by the CPU.
-/// Note that NMI interrupts cannot be disabled and will always run when the CPU
-/// receives them.
-const IRQ_FLAG: u8 = 1 << 2;
-
-/// The decimal flag is not implemented on the NES, but it is still possible to
-/// set the flag.
-const DECIMAL_FLAG: u8 = 1 << 3;
-
-/// The break bit isn't really a flag in that the hardware doesn't have a flag
-/// to represent a break. However, when the processor pushes its flags to the
-/// stack it pushes a single byte, and bit 4 of that byte can be enabled to
-/// indicate that the interrupt occurred as a result of the BRK opcode.
-const BREAK_FLAG: u8 = 1 << 4;
-
-/// The overflow flag is typically used to represent an overflow when performing
-/// addition and subtraction, but the actual semantics depend on the opcode. See
-/// the documentation for individual opcodes to understand what this flag means
-/// in practice.
-const OVERFLOW_FLAG: u8 = 1 << 6;
-
-/// The negative flag indicates that the last operation resulted in a negative
-/// two's complement value, i.e. bit 7 of the result was set.
-const NEGATIVE_FLAG: u8 = 1 << 7;
-
 
 /// The size (in bytes) of one page in memory.
 const PAGE_SIZE: u16 = 0x0100;
@@ -100,6 +64,48 @@ enum Address {
     Indirect(u16),
 }
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+    pub struct Flags: u8 {
+        /// The carry flag is somewhat overloaded in meaning, but it typically means
+        /// that during the previous operation the high bit of the operand was set and
+        /// shifted out, either due to a shift operation or some mathematical process.
+        /// See the documentation for the specific op code to understand what this flag
+        /// means in practice.
+        const CARRY       = 0b0000_0001;
+
+        /// The zero flag indicates that the last operation resulted in a zero value.
+        const ZERO        = 0b0000_0010;
+
+        /// The IRQ disable flag prevents interrupts from being serviced by the CPU.
+        /// Note that NMI interrupts cannot be disabled and will always run when the CPU
+        /// receives them.
+        const IRQ_DISABLE = 0b0000_0100;
+
+        /// The decimal flag is not implemented on the NES, but it is still possible to
+        /// set the flag.
+        const DECIMAL     = 0b0000_1000;
+
+        /// The break bit isn't really a flag in that the hardware doesn't have a flag
+        /// to represent a break. However, when the processor pushes its flags to the
+        /// stack it pushes a single byte, and bit 4 of that byte can be enabled to
+        /// indicate that the interrupt occurred as a result of the BRK opcode.
+        const BREAK       = 0b0001_0000;
+
+        // const UNUSED      = 0b0010_0000;
+
+        /// The overflow flag is typically used to represent an overflow when performing
+        /// addition and subtraction, but the actual semantics depend on the opcode. See
+        /// the documentation for individual opcodes to understand what this flag means
+        /// in practice.
+        const OVERFLOW    = 0b0100_0000;
+
+        /// The negative flag indicates that the last operation resulted in a negative
+        /// two's complement value, i.e. bit 7 of the result was set.
+        const NEGATIVE    = 0b1000_0000;
+    }
+}
+
 #[derive(CopyGetters, Getters)]
 pub struct Cpu<M: Mem> {
     /// The number of CPU cycles that have elapsed since power on
@@ -130,7 +136,7 @@ pub struct Cpu<M: Mem> {
     /// them as a byte rather than a bunch of booleans since some operations
     /// read/write them to/from the stack as a single byte.
     #[getset(get_copy = "pub")]
-    flags: u8,
+    flags: Flags,
 
     /// The program counter points to the next piece of data for the CPU to
     /// evaluate. The 6502 initializes the PC by setting it to the word stored
@@ -152,7 +158,7 @@ impl<M: Mem> Cpu<M> {
             a: 0,
             x: 0,
             y: 0,
-            flags: 0x24,
+            flags: Flags::from_bits_retain(0x24),
             s: 0xFD,
             pc: 0x0000,
             cy: 0,
@@ -165,7 +171,7 @@ impl<M: Mem> Cpu<M> {
     /// and set the IRQ disable flag.
     pub fn reset(&mut self) {
         self.pc = self.loadw(RESET_VECTOR);
-        self.set_flag(IRQ_FLAG, true);
+        self.flags.insert(Flags::IRQ_DISABLE);
     }
 
     /// If true, the CPU is currently in the middle of executing an instruction
@@ -182,10 +188,10 @@ impl<M: Mem> Cpu<M> {
     /// An NMI will always set the IRQ disable flag, and will not push the break
     /// bit to the stack when storing the flags.
     pub fn nmi(&mut self) {
-        self.set_flag(BREAK_FLAG, false);
+        self.flags.remove(Flags::BREAK);
         self.pushw(self.pc);
-        self.pushb(self.flags);
-        self.set_flag(IRQ_FLAG, true);
+        self.pushb(self.flags.bits());
+        self.flags.insert(Flags::IRQ_DISABLE);
         self.pc = self.loadw(NMI_VECTOR);
     }
 
@@ -197,15 +203,15 @@ impl<M: Mem> Cpu<M> {
     /// An IRQ will always set the IRQ disable flag, and will not push the break
     /// bit to the stack when storing the flags.
     pub fn irq(&mut self) {
-        if self.get_flag(IRQ_FLAG) {
+        if self.flags.contains(Flags::IRQ_DISABLE) {
             return;
         }
 
-        self.set_flag(BREAK_FLAG, false);
+        self.flags.remove(Flags::BREAK);
 
         self.pushw(self.pc);
-        self.pushb(self.flags);
-        self.set_flag(IRQ_FLAG, true);
+        self.pushb(self.flags.bits());
+        self.flags.insert(Flags::IRQ_DISABLE);
         self.pc = self.loadw(BRK_VECTOR);
     }
 
@@ -223,7 +229,6 @@ impl<M: Mem> Cpu<M> {
     /// Assuming that page is 0xNN, the memory from 0xNN00 to 0xNNFF will be
     /// transferred to the PPU OAM.
     fn dma(&mut self, page: u8) {
-        debug!("OAM DMA from page 0x{:02X}00", page);
         let start = (page as u16) << 8;
         let end = start + PAGE_SIZE;
 
@@ -534,14 +539,14 @@ impl<M: Mem> Cpu<M> {
     fn adc(&mut self, addr: Address) {
         let m = self.addr_loadb(&addr) as u16;
         let a = self.a as u16;
-        let c = if self.get_flag(CARRY_FLAG) { 1 } else { 0 };
+        let c = self.flags.intersection(Flags::CARRY).bits() as u16;
 
         let result = a + m + c;
 
         let overflow = (!(a ^ m) & (a ^ result)) & 0x80 != 0;
 
-        self.set_flag(OVERFLOW_FLAG, overflow);
-        self.set_flag(CARRY_FLAG, result > 0x00FF);
+        self.flags.set(Flags::OVERFLOW, overflow);
+        self.flags.set(Flags::CARRY, result > 0x00FF);
 
         let result = result as u8;
         self.a = self.set_zn(result);
@@ -583,7 +588,7 @@ impl<M: Mem> Cpu<M> {
         let val = self.addr_loadb(&addr);
         let result = val.wrapping_shl(1);
 
-        self.set_flag(CARRY_FLAG, val & 0x80 == 0x80);
+        self.flags.set(Flags::CARRY, val & 0x80 == 0x80);
         self.set_zn(result);
         self.addr_storeb(&addr, result);
     }
@@ -595,21 +600,21 @@ impl<M: Mem> Cpu<M> {
     /// If the carry flag is clear then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bcc(&mut self, addr: Address) {
-        let carry = self.get_flag(CARRY_FLAG);
+        let carry = self.flags.contains(Flags::CARRY);
         self.branch_base(!carry, addr);
     }
 
     /// If the carry flag is set then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bcs(&mut self, addr: Address) {
-        let carry = self.get_flag(CARRY_FLAG);
+        let carry = self.flags.contains(Flags::CARRY);
         self.branch_base(carry, addr);
     }
 
     /// If the zero flag is set then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn beq(&mut self, addr: Address) {
-        let zero = self.get_flag(ZERO_FLAG);
+        let zero = self.flags.contains(Flags::ZERO);
         self.branch_base(zero, addr);
     }
 
@@ -621,29 +626,29 @@ impl<M: Mem> Cpu<M> {
     /// A & M, N = M7, V = M6
     fn bit(&mut self, addr: Address) {
         let val = self.addr_loadb(&addr);
-        self.set_flag(ZERO_FLAG, self.a & val == 0);
-        self.set_flag(OVERFLOW_FLAG, val & 0x40 != 0);
-        self.set_flag(NEGATIVE_FLAG, val & 0x80 != 0);
+        self.flags.set(Flags::ZERO, self.a & val == 0);
+        self.flags.set(Flags::OVERFLOW, val & 0x40 != 0);
+        self.flags.set(Flags::NEGATIVE, val & 0x80 != 0);
     }
 
     /// If the negative flag is set then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bmi(&mut self, addr: Address) {
-        let negative = self.get_flag(NEGATIVE_FLAG);
+        let negative = self.flags.contains(Flags::NEGATIVE);
         self.branch_base(negative, addr);
     }
 
     /// If the zero flag is clear then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bne(&mut self, addr: Address) {
-        let zero = self.get_flag(ZERO_FLAG);
+        let zero = self.flags.contains(Flags::ZERO);
         self.branch_base(!zero, addr);
     }
 
     /// If the negative flag is clear then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bpl(&mut self, addr: Address) {
-        let negative = self.get_flag(NEGATIVE_FLAG);
+        let negative = self.flags.contains(Flags::NEGATIVE);
         self.branch_base(!negative, addr);
     }
 
@@ -652,48 +657,49 @@ impl<M: Mem> Cpu<M> {
     /// IRQ interrupt vector at $FFFE/F is loaded into the PC and the break flag
     /// in the status set to one.
     fn brk(&mut self, _addr: Address) {
+        let flags = (self.flags | Flags::from_bits_retain(0x30)).bits();
         // Push PC + 2 onto the stack. Since PC has already been incremented
         // from parsing the BRK, we only need to add one here.
         self.pushw(self.pc + 1);
-        self.pushb(self.flags | 0x30);
+        self.pushb(flags);
         self.pc = self.loadw(BRK_VECTOR);
     }
 
     /// If the overflow flag is clear then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bvc(&mut self, addr: Address) {
-        let overflow = self.get_flag(OVERFLOW_FLAG);
+        let overflow = self.flags.contains(Flags::OVERFLOW);
         self.branch_base(!overflow, addr);
     }
 
     /// If the overflow flag is set then add the relative displacement to the
     /// program counter to cause a branch to a new location.
     fn bvs(&mut self, addr: Address) {
-        let overflow = self.get_flag(OVERFLOW_FLAG);
+        let overflow = self.flags.contains(Flags::OVERFLOW);
         self.branch_base(overflow, addr);
     }
 
     /// Set the carry flag to zero
     fn clc(&mut self, _addr: Address) {
-        self.set_flag(CARRY_FLAG, false);
+        self.flags.remove(Flags::CARRY);
     }
 
     /// Sets the decimal mode flag to zero.
     fn cld(&mut self, _addr: Address) {
-        self.set_flag(DECIMAL_FLAG, false);
+        self.flags.remove(Flags::DECIMAL);
     }
 
     /// Clears the interrupt disable flag allowing normal interrupt requests to
     /// be serviced.
     fn cli(&mut self, _addr: Address) {
-        self.set_flag(IRQ_FLAG, false);
+        self.flags.remove(Flags::IRQ_DISABLE);
     }
 
     /// Clears the overflow flag.
     ///
     /// V = 0
     fn clv(&mut self, _addr: Address) {
-        self.set_flag(OVERFLOW_FLAG, false);
+        self.flags.remove(Flags::OVERFLOW);
     }
 
     /// This instruction compares the contents of the accumulator with another
@@ -703,12 +709,12 @@ impl<M: Mem> Cpu<M> {
     fn cmp(&mut self, addr: Address) {
         let val = self.addr_loadb(&addr);
 
-        self.set_flag(CARRY_FLAG, self.a >= val);
-        self.set_flag(ZERO_FLAG, self.a == val);
+        self.flags.set(Flags::CARRY, self.a >= val);
+        self.flags.set(Flags::ZERO, self.a == val);
 
         let result = self.a as i32 - val as i32;
         let negative = result & 0x80 != 0;
-        self.set_flag(NEGATIVE_FLAG, negative);
+        self.flags.set(Flags::NEGATIVE, negative);
     }
 
     /// This instruction compares the contents of the X register with another
@@ -718,12 +724,12 @@ impl<M: Mem> Cpu<M> {
     fn cpx(&mut self, addr: Address) {
         let val = self.addr_loadb(&addr);
 
-        self.set_flag(CARRY_FLAG, self.x >= val);
-        self.set_flag(ZERO_FLAG, self.x == val);
+        self.flags.set(Flags::CARRY, self.x >= val);
+        self.flags.set(Flags::ZERO, self.x == val);
 
         let result = self.x as i16 - val as i16;
         let negative = result & 0x80 != 0;
-        self.set_flag(NEGATIVE_FLAG, negative);
+        self.flags.set(Flags::NEGATIVE, negative);
     }
 
     /// This instruction compares the contents of the Y register with another
@@ -733,12 +739,12 @@ impl<M: Mem> Cpu<M> {
     fn cpy(&mut self, addr: Address) {
         let val = self.addr_loadb(&addr);
 
-        self.set_flag(CARRY_FLAG, self.y >= val);
-        self.set_flag(ZERO_FLAG, self.y == val);
+        self.flags.set(Flags::CARRY, self.y >= val);
+        self.flags.set(Flags::ZERO, self.y == val);
 
         let result = self.y as i16 - val as i16;
         let negative = result & 0x80 != 0;
-        self.set_flag(NEGATIVE_FLAG, negative);
+        self.flags.set(Flags::NEGATIVE, negative);
     }
 
     /// Assigns the result of decrementing the given address by one back to the
@@ -917,7 +923,7 @@ impl<M: Mem> Cpu<M> {
         let val = self.addr_loadb(&addr);
         let result = val >> 1;
 
-        self.set_flag(CARRY_FLAG, val & 0x01 != 0);
+        self.flags.set(Flags::CARRY, val & 0x01 != 0);
         self.set_zn(result);
         self.addr_storeb(&addr, result);
     }
@@ -943,8 +949,8 @@ impl<M: Mem> Cpu<M> {
     /// Pushes a copy of the status flags on to the stack.
     fn php(&mut self, _addr: Address) {
         // When pushing, bits 4 & 5 are always 1.
-        let flags = self.flags | 0x30;
-        self.pushb(flags);
+        let bits = (self.flags | Flags::from_bits_retain(0x30)).bits();
+        self.pushb(bits);
     }
 
     /// Pulls an 8 bit value from the stack and into the accumulator. The zero
@@ -960,7 +966,7 @@ impl<M: Mem> Cpu<M> {
         // the 4th bit ("B flag") isn't set by this op
         // the 5th bit isn't a bit, but for emulation it's just always high.
         let flags = self.popb() & 0xEF | 0x20;
-        self.flags = flags;
+        self.flags = Flags::from_bits_retain(flags);
     }
 
     fn rla(&mut self, addr: Address) {
@@ -975,15 +981,15 @@ impl<M: Mem> Cpu<M> {
         let val = self.addr_loadb(&addr);
         let mut result = val.wrapping_shl(1);
 
-        if self.get_flag(CARRY_FLAG) {
+        if self.flags.intersects(Flags::CARRY) {
             result += 1;
         }
 
         self.addr_storeb(&addr, result);
 
-        self.set_flag(CARRY_FLAG, val & 0x80 != 0);
-        self.set_flag(NEGATIVE_FLAG, result & 0x80 != 0);
-        self.set_flag(ZERO_FLAG, self.a == 0);
+        self.flags.set(Flags::CARRY, val & 0x80 != 0);
+        self.flags.set(Flags::NEGATIVE, result & 0x80 != 0);
+        self.flags.set(Flags::ZERO, self.a == 0);
     }
 
     /// Move each of the bits in either A or M one place to the right. Bit 7 is
@@ -993,11 +999,11 @@ impl<M: Mem> Cpu<M> {
         let val = self.addr_loadb(&addr);
         let mut result = val >> 1;
 
-        if self.get_flag(CARRY_FLAG) {
+        if self.flags.intersects(Flags::CARRY) {
             result |= 0x80;
         }
 
-        self.set_flag(CARRY_FLAG, val & 0x01 != 0);
+        self.flags.set(Flags::CARRY, val & 0x01 != 0);
         self.set_zn(result);
 
         self.addr_storeb(&addr, result);
@@ -1013,7 +1019,7 @@ impl<M: Mem> Cpu<M> {
     /// program counter.
     fn rti(&mut self, _addr: Address) {
         // Bit 5 isn't real, but it's always high for emu purposes
-        self.flags = self.popb() | 0x20;
+        self.flags = Flags::from_bits_retain(self.popb() | 0x20);
         self.pc = self.popw();
     }
 
@@ -1041,36 +1047,37 @@ impl<M: Mem> Cpu<M> {
     fn sbc(&mut self, addr: Address) {
         let m = self.addr_loadb(&addr) as u16;
         let a = self.a as u16;
-        let c = if self.get_flag(CARRY_FLAG) { 1 } else { 0 };
+        // 1 when carry flag is set, 0 otherwise
+        let c = self.flags.intersection(Flags::CARRY).bits() as u16;
 
         let m = m ^ 0x00FF;
         let result = a + m + c;
 
         // Set the carry flag if the (signed) result >= 0
-        self.set_flag(CARRY_FLAG, result & 0xFF00 != 0);
+        self.flags.set(Flags::CARRY, result & 0xFF00 != 0);
 
         // Set the overflow flag if the sign flipped
         let overflow = (result ^ a) & (result ^ m) & 0x80 != 0;
-        self.set_flag(OVERFLOW_FLAG, overflow);
+        self.flags.set(Flags::OVERFLOW, overflow);
 
         self.a = self.set_zn(result as u8);
     }
 
     /// Set the carry flag to one
     fn sec(&mut self, _addr: Address) {
-        self.set_flag(CARRY_FLAG, true);
+        self.flags.insert(Flags::CARRY);
     }
 
     /// Set the decimal mode flag to one.
     ///
     /// D = 1
     fn sed(&mut self, _addr: Address) {
-        self.set_flag(DECIMAL_FLAG, true);
+        self.flags.insert(Flags::DECIMAL);
     }
 
     /// Set the interrupt disable flag to one
     fn sei(&mut self, _addr: Address) {
-        self.set_flag(IRQ_FLAG, true);
+        self.flags.insert(Flags::IRQ_DISABLE);
     }
 
     fn shx(&mut self, _addr: Address) {
@@ -1220,21 +1227,9 @@ impl<M: Mem> Cpu<M> {
 
     // flags
 
-    fn get_flag(&self, flag: u8) -> bool {
-        (self.flags & flag) != 0
-    }
-
-    fn set_flag(&mut self, flag: u8, on: bool) {
-        if on {
-            self.flags |= flag;
-        } else {
-            self.flags &= !flag;
-        }
-    }
-
     fn set_zn(&mut self, val: u8) -> u8 {
-        self.set_flag(ZERO_FLAG, val == 0);
-        self.set_flag(NEGATIVE_FLAG, (val & 0x80) != 0);
+        self.flags.set(Flags::ZERO, val == 0);
+        self.flags.set(Flags::NEGATIVE, (val & 0x80) != 0);
         val
     }
 
@@ -1302,7 +1297,7 @@ mod tests {
             let mut cpu = Cpu::new(VecMem { mem: $mem });
             cpu.pc = 0;
             cpu.s = 0xFF;
-            cpu.flags = $flags;
+            cpu.flags = Flags::from_bits_retain($flags);
             cpu
         }};
     }
@@ -1328,21 +1323,21 @@ mod tests {
         fn reset_sets_i_flag() {
             let mut cpu = cpu!(0x00, vec![0; 0x10000]);
             cpu.reset();
-            assert!(cpu.get_flag(IRQ_FLAG));
+            assert!(cpu.flags.contains(Flags::IRQ_DISABLE));
         }
 
         #[test]
         fn nmi_sets_i_flag() {
             let mut cpu = cpu!(0x00, vec![0; 0x10000]);
             cpu.nmi();
-            assert!(cpu.get_flag(IRQ_FLAG));
+            assert!(cpu.flags.contains(Flags::IRQ_DISABLE));
         }
 
         #[test]
         fn nmi_clears_b_flag() {
-            let mut cpu = cpu!(BREAK_FLAG, vec![0; 0x10000]);
+            let mut cpu = cpu!(Flags::BREAK.bits(), vec![0; 0x10000]);
             cpu.nmi();
-            assert!(!cpu.get_flag(BREAK_FLAG));
+            assert!(!cpu.flags.contains(Flags::BREAK));
         }
 
         #[test]
@@ -1357,10 +1352,10 @@ mod tests {
 
         #[test]
         fn nmi_pushes_flags_to_stack() {
-            let mut cpu = cpu!(ZERO_FLAG | CARRY_FLAG, vec![0; 0x10000]);
+            let mut cpu = cpu!(Flags::ZERO.bits() | Flags::CARRY.bits(), vec![0; 0x10000]);
             cpu.s = 0xFF;
             cpu.nmi();
-            assert_eq!(cpu.mem.mem[0x01FD], ZERO_FLAG | CARRY_FLAG);
+            assert_eq!(cpu.mem.mem[0x01FD], Flags::ZERO.bits() | Flags::CARRY.bits());
         }
 
         #[test]
@@ -1375,7 +1370,7 @@ mod tests {
 
         #[test]
         fn irq_ignored_with_i_flag() {
-            let mut cpu = cpu!(IRQ_FLAG, vec![0; 0x10000]);
+            let mut cpu = cpu!(Flags::IRQ_DISABLE.bits(), vec![0; 0x10000]);
             cpu.pc = 0xABCD;
             cpu.irq();
             assert_eq!(cpu.pc, 0xABCD);
@@ -1385,14 +1380,14 @@ mod tests {
         fn irq_sets_irq_flag() {
             let mut cpu = cpu!(0x00, vec![0; 0x10000]);
             cpu.irq();
-            assert!(cpu.get_flag(IRQ_FLAG));
+            assert!(cpu.flags.intersects(Flags::IRQ_DISABLE));
         }
 
         #[test]
         fn irq_clears_b_flag() {
-            let mut cpu = cpu!(BREAK_FLAG, vec![0; 0x10000]);
+            let mut cpu = cpu!(Flags::BREAK.bits(), vec![0; 0x10000]);
             cpu.irq();
-            assert!(!cpu.get_flag(BREAK_FLAG));
+            assert!(!cpu.flags.intersects(Flags::BREAK));
         }
 
         #[test]
@@ -1407,9 +1402,9 @@ mod tests {
 
         #[test]
         fn irq_pushes_flags_to_stack() {
-            let mut cpu = cpu!(ZERO_FLAG | CARRY_FLAG, vec![0; 0x10000]);
+            let mut cpu = cpu!(Flags::ZERO.bits() | Flags::CARRY.bits(), vec![0; 0x10000]);
             cpu.irq();
-            assert_eq!(cpu.mem.mem[0x01FD], ZERO_FLAG | CARRY_FLAG);
+            assert_eq!(cpu.mem.mem[0x01FD], Flags::ZERO.bits() | Flags::CARRY.bits());
         }
 
         #[test]
@@ -1747,7 +1742,7 @@ mod tests {
         #[test]
         fn adc_adds_carry() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.adc(Address::Immediate(0x01));
             assert_eq!(cpu.a, 0x02);
         }
@@ -1765,7 +1760,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x80;
             cpu.adc(Address::Immediate(0xFF));
-            assert!(cpu.get_flag(OVERFLOW_FLAG));
+            assert!(cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
@@ -1773,16 +1768,16 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x7F;
             cpu.adc(Address::Immediate(0x01));
-            assert!(cpu.get_flag(OVERFLOW_FLAG));
+            assert!(cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
         fn adc_clears_v_for_non_overflow() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(OVERFLOW_FLAG, true);
+            cpu.flags.insert(Flags::OVERFLOW);
             cpu.a = 0x05;
             cpu.adc(Address::Immediate(0x05));
-            assert!(!cpu.get_flag(OVERFLOW_FLAG));
+            assert!(!cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
@@ -1790,16 +1785,16 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0xFF;
             cpu.adc(Address::Immediate(0x01));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
         fn adc_clears_c_no_overflow() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.a = 0x01;
             cpu.adc(Address::Immediate(0x01));
-            assert!(!cpu.get_flag(CARRY_FLAG));
+            assert!(!cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -1814,7 +1809,7 @@ mod tests {
         fn and_sets_zero_flag() {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.and(Address::Immediate(0xFF));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -1822,7 +1817,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x80;
             cpu.and(Address::Immediate(0x80));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -1838,7 +1833,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x80;
             cpu.asl(Address::Accumulator);
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -1846,7 +1841,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x40;
             cpu.asl(Address::Accumulator);
-            assert!(!cpu.get_flag(CARRY_FLAG));
+            assert!(!cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -1854,7 +1849,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0xF7;
             cpu.asl(Address::Accumulator);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -1862,7 +1857,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![]);
             cpu.a = 0x80;
             cpu.asl(Address::Accumulator);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -1875,7 +1870,7 @@ mod tests {
         #[test]
         fn bcc_doesnt_jump_when_carry_is_set() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.bcc(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0);
         }
@@ -1883,7 +1878,7 @@ mod tests {
         #[test]
         fn bcs_jumps_when_carry_is_set() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.bcs(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0xABCD);
         }
@@ -1898,7 +1893,7 @@ mod tests {
         #[test]
         fn beq_jumps_when_zero_is_set() {
             let mut cpu = cpu!(0x00, vec![]);
-            cpu.set_flag(ZERO_FLAG, true);
+            cpu.flags.insert(Flags::ZERO);
             cpu.beq(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0xABCD);
         }
@@ -1914,21 +1909,21 @@ mod tests {
         fn bit_sets_n_with_test_value_bit_7() {
             let mut cpu = cpu!(0x00, vec![0x80]);
             cpu.bit(Address::Absolute(0x00));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
         fn bit_sets_v_with_test_value_bit_6() {
             let mut cpu = cpu!(0x00, vec![0x40]);
             cpu.bit(Address::Absolute(0x00));
-            assert!(cpu.get_flag(OVERFLOW_FLAG));
+            assert!(cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
         fn bit_sets_z_when_test_and_acc_is_zero() {
             let mut cpu = cpu!(0x00, vec![0xFF]);
             cpu.bit(Address::Absolute(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -1936,7 +1931,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![0xFF]);
             cpu.a = 0x80;
             cpu.bit(Address::Absolute(0x00));
-            assert!(!cpu.get_flag(ZERO_FLAG));
+            assert!(!cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -1949,7 +1944,7 @@ mod tests {
 
         #[test]
         fn bmi_jumps_when_negative_set() {
-            let mut cpu = cpu!(NEGATIVE_FLAG);
+            let mut cpu = cpu!(Flags::NEGATIVE.bits());
             cpu.bmi(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0xABCD);
         }
@@ -1970,7 +1965,7 @@ mod tests {
 
         #[test]
         fn bne_doesnt_jump_when_zero_set() {
-            let mut cpu = cpu!(ZERO_FLAG);
+            let mut cpu = cpu!(Flags::ZERO.bits());
             cpu.bne(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0);
         }
@@ -1984,7 +1979,7 @@ mod tests {
 
         #[test]
         fn bpl_doesnt_jump_when_negative_set() {
-            let mut cpu = cpu!(NEGATIVE_FLAG);
+            let mut cpu = cpu!(Flags::NEGATIVE.bits());
             cpu.bpl(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0);
         }
@@ -2010,7 +2005,7 @@ mod tests {
         fn brk_sets_break_bit() {
             let mut cpu = cpu!(0x00, vec![0; 0x10000]);
             cpu.brk(Address::Implied);
-            assert_eq!(cpu.mem.mem[0x01FD] & BREAK_FLAG, BREAK_FLAG);
+            assert_eq!(cpu.mem.mem[0x01FD] & Flags::BREAK.bits(), Flags::BREAK.bits());
         }
 
         #[test]
@@ -2033,14 +2028,14 @@ mod tests {
 
         #[test]
         fn bvc_doesnt_jump_when_overflow_set() {
-            let mut cpu = cpu!(OVERFLOW_FLAG);
+            let mut cpu = cpu!(Flags::OVERFLOW.bits());
             cpu.bvc(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0);
         }
 
         #[test]
         fn bvs_jumps_when_overflow_set() {
-            let mut cpu = cpu!(OVERFLOW_FLAG);
+            let mut cpu = cpu!(Flags::OVERFLOW.bits());
             cpu.bvs(Address::Absolute(0xABCD));
             assert_eq!(cpu.pc, 0xABCD);
         }
@@ -2054,30 +2049,30 @@ mod tests {
 
         #[test]
         fn clc_clears_carry_flag() {
-            let mut cpu = cpu!(CARRY_FLAG);
+            let mut cpu = cpu!(Flags::CARRY.bits());
             cpu.clc(Address::Implied);
-            assert!(!cpu.get_flag(CARRY_FLAG));
+            assert!(!cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
         fn cld_clears_decimal_flag() {
-            let mut cpu = cpu!(DECIMAL_FLAG);
+            let mut cpu = cpu!(Flags::DECIMAL.bits());
             cpu.cld(Address::Implied);
-            assert!(!cpu.get_flag(DECIMAL_FLAG));
+            assert!(!cpu.flags.intersects(Flags::DECIMAL));
         }
 
         #[test]
         fn cli_clears_interrupt_disable_flag() {
-            let mut cpu = cpu!(IRQ_FLAG);
+            let mut cpu = cpu!(Flags::IRQ_DISABLE.bits());
             cpu.cli(Address::Implied);
-            assert!(!cpu.get_flag(IRQ_FLAG));
+            assert!(!cpu.flags.intersects(Flags::IRQ_DISABLE));
         }
 
         #[test]
         fn clv_clears_overflow_flag() {
-            let mut cpu = cpu!(OVERFLOW_FLAG);
+            let mut cpu = cpu!(Flags::OVERFLOW.bits());
             cpu.clv(Address::Implied);
-            assert!(!cpu.get_flag(OVERFLOW_FLAG));
+            assert!(!cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
@@ -2085,7 +2080,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.cmp(Address::Immediate(0x80));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2093,7 +2088,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0xFF;
             cpu.cmp(Address::Immediate(0x01));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2101,7 +2096,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0xFF;
             cpu.cmp(Address::Immediate(0xFF));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2109,7 +2104,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0xFF;
             cpu.cmp(Address::Immediate(0x1F));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2117,7 +2112,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0x80;
             cpu.cpx(Address::Immediate(0x80));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2125,7 +2120,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0xFF;
             cpu.cpx(Address::Immediate(0x01));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2133,7 +2128,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0xFF;
             cpu.cpx(Address::Immediate(0xFF));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2141,7 +2136,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0xFF;
             cpu.cpx(Address::Immediate(0x1F));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2149,7 +2144,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0x80;
             cpu.cpy(Address::Immediate(0x80));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2157,7 +2152,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0xFF;
             cpu.cpy(Address::Immediate(0x01));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2165,7 +2160,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0xFF;
             cpu.cpy(Address::Immediate(0xFF));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2173,7 +2168,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0xFF;
             cpu.cpy(Address::Immediate(0x1F));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2187,14 +2182,14 @@ mod tests {
         fn dec_sets_zero_flag() {
             let mut cpu = cpu!(0x00, vec![0x01]);
             cpu.dec(Address::Absolute(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
         fn dec_sets_negative_flag() {
             let mut cpu = cpu!(0x00, vec![0xFF]);
             cpu.dec(Address::Absolute(0x00));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2217,7 +2212,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0x01;
             cpu.dex(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2225,7 +2220,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0xFF;
             cpu.dex(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2249,7 +2244,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0x01;
             cpu.dey(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2257,7 +2252,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0xFF;
             cpu.dey(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2281,7 +2276,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x0F;
             cpu.eor(Address::Immediate(0x0F));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2289,7 +2284,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.eor(Address::Immediate(0x08));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2303,14 +2298,14 @@ mod tests {
         fn inc_sets_zero_flag() {
             let mut cpu = cpu!(0x00, vec![0xFF]);
             cpu.inc(Address::Absolute(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
         fn inc_sets_negative_flag() {
             let mut cpu = cpu!(0x00, vec![0x7F]);
             cpu.inc(Address::Absolute(0x00));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2333,7 +2328,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0xFF;
             cpu.inx(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2341,7 +2336,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0x7F;
             cpu.inx(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2365,7 +2360,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0xFF;
             cpu.iny(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2373,7 +2368,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0x7F;
             cpu.iny(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2421,14 +2416,14 @@ mod tests {
         fn lda_sets_zero_flag() {
             let mut cpu = cpu!();
             cpu.lda(Address::Immediate(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
         fn lda_sets_negative_flag() {
             let mut cpu = cpu!();
             cpu.lda(Address::Immediate(0x80));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2442,14 +2437,14 @@ mod tests {
         fn ldx_sets_zero_flag() {
             let mut cpu = cpu!();
             cpu.ldx(Address::Immediate(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
         fn ldx_sets_negative_flag() {
             let mut cpu = cpu!();
             cpu.ldx(Address::Immediate(0x80));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2463,14 +2458,14 @@ mod tests {
         fn ldy_sets_zero_flag() {
             let mut cpu = cpu!();
             cpu.ldy(Address::Immediate(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
         fn ldy_sets_negative_flag() {
             let mut cpu = cpu!();
             cpu.ldy(Address::Immediate(0x80));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2486,7 +2481,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x01;
             cpu.lsr(Address::Accumulator);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2494,7 +2489,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x01;
             cpu.lsr(Address::Accumulator);
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2510,7 +2505,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x00;
             cpu.ora(Address::Immediate(0x00));
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2518,7 +2513,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x00;
             cpu.ora(Address::Immediate(0x80));
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2575,7 +2570,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![0; 0x0200]);
             cpu.s = 0xFE;
             cpu.pla(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2585,7 +2580,7 @@ mod tests {
             let mut cpu = cpu!(0x00, mem);
             cpu.s = 0xFE;
             cpu.pla(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2598,7 +2593,7 @@ mod tests {
 
             // 4th bit is not modified by PLP
             // 5th bit is always high because it isn't real in the HW
-            assert_eq!(cpu.flags, 0x42 & 0xEF | 0x20);
+            assert_eq!(cpu.flags, Flags::from_bits_retain(0x42 & 0xEF | 0x20));
         }
 
         #[test]
@@ -2623,7 +2618,7 @@ mod tests {
         fn rol_fills_bit_0_with_carry_flag() {
             let mut cpu = cpu!();
             cpu.a = 0b11110000;
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.rol(Address::Accumulator);
             assert_eq!(cpu.a, 0b11100001);
         }
@@ -2633,7 +2628,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.rol(Address::Accumulator);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2641,7 +2636,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x40;
             cpu.rol(Address::Accumulator);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2649,7 +2644,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.rol(Address::Accumulator);
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2664,7 +2659,7 @@ mod tests {
         fn ror_fills_bit_7_with_carry_flag() {
             let mut cpu = cpu!();
             cpu.a = 0b11110000;
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.ror(Address::Accumulator);
             assert_eq!(cpu.a, 0b11111000);
         }
@@ -2672,7 +2667,7 @@ mod tests {
         #[test]
         fn ror_sets_negative_flag_with_carry() {
             let mut cpu = cpu!();
-            cpu.set_flag(CARRY_FLAG, true);
+            cpu.flags.insert(Flags::CARRY);
             cpu.ror(Address::Accumulator);
             assert_eq!(cpu.a, 0x80);
         }
@@ -2682,7 +2677,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x01;
             cpu.ror(Address::Accumulator);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2690,7 +2685,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x01;
             cpu.ror(Address::Accumulator);
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
@@ -2705,7 +2700,7 @@ mod tests {
             cpu.rti(Address::Implied);
 
             // Add 0x20 to assertion since this bit is always high for emu
-            assert_eq!(cpu.flags, 0x42 | 0x20);
+            assert_eq!(cpu.flags, Flags::from_bits_retain(0x42 | 0x20));
         }
 
         #[test]
@@ -2744,7 +2739,7 @@ mod tests {
 
         #[test]
         fn sbc_subtracts_mem() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x7F;
             cpu.sbc(Address::Immediate(0x01));
             assert_eq!(cpu.a, 0x7E);
@@ -2760,7 +2755,7 @@ mod tests {
 
         #[test]
         fn sbc_wraps_byte_underflow() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x00;
             cpu.sbc(Address::Immediate(0x01));
             assert_eq!(cpu.a, 0xFF);
@@ -2768,63 +2763,64 @@ mod tests {
 
         #[test]
         fn sbc_sets_v_for_overflow() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x00;
             cpu.sbc(Address::Immediate(0x80));
-            assert!(cpu.get_flag(OVERFLOW_FLAG));
+            assert!(cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
         fn sbc_sets_v_for_underflow() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x80;
             cpu.sbc(Address::Immediate(0x01));
-            assert!(cpu.get_flag(OVERFLOW_FLAG));
+            assert!(cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
         fn sbc_clears_v_for_non_overflow() {
-            let mut cpu = cpu!(CARRY_FLAG | OVERFLOW_FLAG, vec![]);
+            let flags = Flags::CARRY.bits() | Flags::OVERFLOW.bits();
+            let mut cpu = cpu!(flags, vec![]);
             cpu.a = 0x0A;
             cpu.sbc(Address::Immediate(0x05));
-            assert!(!cpu.get_flag(OVERFLOW_FLAG));
+            assert!(!cpu.flags.intersects(Flags::OVERFLOW));
         }
 
         #[test]
         fn sbc_clears_c_for_borrow() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x02;
             cpu.sbc(Address::Immediate(0x05));
-            assert!(!cpu.get_flag(CARRY_FLAG));
+            assert!(!cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
         fn sbc_sets_c_for_no_borrow() {
-            let mut cpu = cpu!(CARRY_FLAG, vec![]);
+            let mut cpu = cpu!(Flags::CARRY.bits(), vec![]);
             cpu.a = 0x0A;
             cpu.sbc(Address::Immediate(0x05));
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
         fn sec_sets_carry_flag() {
             let mut cpu = cpu!();
             cpu.sec(Address::Implied);
-            assert!(cpu.get_flag(CARRY_FLAG));
+            assert!(cpu.flags.intersects(Flags::CARRY));
         }
 
         #[test]
         fn sed_sets_decimal_flag() {
             let mut cpu = cpu!();
             cpu.sed(Address::Implied);
-            assert!(cpu.get_flag(DECIMAL_FLAG));
+            assert!(cpu.flags.intersects(Flags::DECIMAL));
         }
 
         #[test]
         fn sei_sets_interrupt_flag() {
             let mut cpu = cpu!();
             cpu.sei(Address::Implied);
-            assert!(cpu.get_flag(IRQ_FLAG));
+            assert!(cpu.flags.intersects(Flags::IRQ_DISABLE));
         }
 
         #[test]
@@ -2864,7 +2860,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x00;
             cpu.tax(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2872,7 +2868,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.tax(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2888,7 +2884,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x00;
             cpu.tay(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2896,7 +2892,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.a = 0x80;
             cpu.tay(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2920,7 +2916,7 @@ mod tests {
             let mut cpu = cpu!(0x00, vec![0; 0x0200]);
             cpu.s = 0x00;
             cpu.tsx(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2930,7 +2926,7 @@ mod tests {
             let mut cpu = cpu!(0x00, mem);
             cpu.s = 0xFE;
             cpu.tsx(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2945,7 +2941,7 @@ mod tests {
         fn txa_sets_zero_flag() {
             let mut cpu = cpu!();
             cpu.txa(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2953,7 +2949,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.x = 0x80;
             cpu.txa(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
 
         #[test]
@@ -2976,7 +2972,7 @@ mod tests {
         fn tya_sets_zero_flag() {
             let mut cpu = cpu!();
             cpu.tya(Address::Implied);
-            assert!(cpu.get_flag(ZERO_FLAG));
+            assert!(cpu.flags.intersects(Flags::ZERO));
         }
 
         #[test]
@@ -2984,7 +2980,7 @@ mod tests {
             let mut cpu = cpu!();
             cpu.y = 0x80;
             cpu.tya(Address::Implied);
-            assert!(cpu.get_flag(NEGATIVE_FLAG));
+            assert!(cpu.flags.intersects(Flags::NEGATIVE));
         }
     }
 }

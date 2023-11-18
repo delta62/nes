@@ -7,6 +7,7 @@ description = "An NES emulation library"
 publish = false
 
 [dependencies]
+bitflags = "2.4.1"
 dasp = { version = "^0.11.0", features = [ "interpolate", "interpolate-linear", "signal" ] }
 getset = "^0.1.1"
 log = "^0.4.14"
