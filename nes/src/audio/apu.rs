@@ -38,7 +38,7 @@ impl Apu {
             frame_counter: FrameCounter::new(),
             noise: Noise::new(),
             square1: Square::new(1),
-            square2: Square::new(1),
+            square2: Square::new(2),
             triangle: Triangle::new(),
         }
     }

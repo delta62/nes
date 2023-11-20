@@ -10,7 +10,7 @@ use crate::mem::Mem;
 use oam::Oam;
 pub use rgb::Rgb;
 use getset::{CopyGetters, Getters};
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use registers::{PpuControl, PpuMask, PpuStatus, Vtwx};
 use shifters::PatternShifter;
 use sprite::{SpritePriority, SpriteShift};
@@ -241,14 +241,12 @@ impl Ppu {
 
         // Flags
         if line == 241 && px == 1 {
-            debug!("vblank started");
             if self.ppuctrl.generate_nmi() {
                 result.vblank_nmi = true;
             }
 
             self.ppustatus.set_vblank_started(true);
         } else if is_prerender_line && px == 1 {
-            debug!("vblank ended");
             result.new_frame = true;
             self.ppustatus.set_sprite_overflow(false);
             self.ppustatus.set_sprite_zero_hit(false);
@@ -345,11 +343,7 @@ impl Ppu {
             "Invalid nametable address",
         );
 
-        let ret = self.vram.loadb(tile_addr);
-
-        trace!("Fetch NT byte from 0x{:04X} = 0x{:02X}", tile_addr, ret);
-
-        ret
+        self.vram.loadb(tile_addr)
     }
 
     fn fetch_attribute_table(&mut self) -> u8 {
@@ -376,8 +370,6 @@ impl Ppu {
 
         debug_assert!(ret < 0x04, "Too many bits set in attr address");
 
-        trace!("Fetch AT byte from 0x{:04X} = 0x{:04X}", attr_addr, ret);
-
         ret
     }
 
@@ -386,11 +378,7 @@ impl Ppu {
 
         debug_assert!(addr < 0x2000, "Invalid pattern table address");
 
-        let ret = self.vram.loadb(addr);
-
-        trace!("Fetch lo BG byte from 0x{:04X} = 0x{:02X}", addr, ret);
-
-        ret
+        self.vram.loadb(addr)
     }
 
     fn fetch_bg_hi(&mut self) -> u8 {
@@ -398,11 +386,7 @@ impl Ppu {
 
         debug_assert!(addr < 0x2000, "Invalid pattern table address");
 
-        let ret = self.vram.loadb(addr);
-
-        trace!("Fetch hi BG byte from 0x{:04X} = 0x{:02X}", addr, ret);
-
-        ret
+        self.vram.loadb(addr)
     }
 
     fn fetch_sprite_lo(&mut self, line: u16, px: u16) -> u8 {
@@ -411,11 +395,7 @@ impl Ppu {
         debug_assert!(sprite_idx < 8, "Sprite index out of bounds");
 
         let addr = self.sprite_pattern_addr(sprite_idx as usize, line, 0);
-        let ret = self.vram.loadb(addr);
-
-        trace!("Fetch lo SP byte from 0x{:04X} = 0x{:02X}", addr, ret);
-
-        ret
+        self.vram.loadb(addr)
     }
 
     fn fetch_sprite_hi(&mut self, line: u16, px: u16) -> u8 {
@@ -424,11 +404,7 @@ impl Ppu {
         debug_assert!(sprite_idx < 8, "Sprite index out of bounds");
 
         let addr = self.sprite_pattern_addr(sprite_idx as usize, line, 8);
-        let ret = self.vram.loadb(addr);
-
-        trace!("Fetch hi SP byte from 0x{:04X} = 0x{:02X}", addr, ret);
-
-        ret
+        self.vram.loadb(addr)
     }
 
     fn pattern_addr(&self, bit_plane: u16) -> u16 {
@@ -440,18 +416,7 @@ impl Ppu {
         let nt_byte = self.shifter.nametable();
         let pattern_table_index = (nt_byte as u16) << 4;
         let pattern_table = self.ppuctrl.background_pattern_table_address();
-        let ret = pattern_table | pattern_table_index | bit_plane | fine_y;
-
-        trace!(
-            "Patt addr: {:08b} | {:08b} | {:08b} | {:08b} = 0x{:04X}",
-            pattern_table,
-            pattern_table_index,
-            bit_plane,
-            fine_y,
-            ret,
-        );
-
-        ret
+        pattern_table | pattern_table_index | bit_plane | fine_y
     }
 
     fn sprite_pattern_addr(&self, sprite_idx: usize, line: u16, bit_plane: u16) -> u16 {
@@ -462,27 +427,14 @@ impl Ppu {
 
         let fine_y = if sprite_y > line {
             0
+        } else if mirror_y {
+            7 - (line - sprite_y)
         } else {
-            if mirror_y {
-                7 - (line - sprite_y)
-            } else {
-                line - sprite_y
-            }
+            line - sprite_y
         };
 
         let pattern_table = self.ppuctrl.sprite_pattern_table_address();
-        let ret = pattern_table | pattern_table_index | bit_plane | fine_y;
-
-        trace!(
-            "SP patt addr: %{:08b} | %{:08b} | %{:08b} | %{:08b} = 0x{:04X}",
-            pattern_table,
-            pattern_table_index,
-            bit_plane,
-            fine_y,
-            ret,
-        );
-
-        ret
+        pattern_table | pattern_table_index | bit_plane | fine_y
     }
 
     fn sprite_pixel(&mut self, px: u16) -> Option<(&'static Rgb, SpritePriority, usize)> {

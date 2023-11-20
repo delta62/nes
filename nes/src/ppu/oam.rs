@@ -158,16 +158,14 @@ impl Oam {
                     // set sprite overflow
                     ret = true;
                     self.tick_state = TickState::Phase3ExtraRead(1);
+                } else if m < 3 {
+                    self.tick_state = TickState::OverflowDetection(m + 1);
                 } else {
-                    if m < 3 {
-                        self.tick_state = TickState::OverflowDetection(m + 1);
+                    self.increment_n();
+                    if self.n == 0 {
+                        self.tick_state = TickState::BusyLoop;
                     } else {
-                        self.increment_n();
-                        if self.n == 0 {
-                            self.tick_state = TickState::BusyLoop;
-                        } else {
-                            self.tick_state = TickState::OverflowDetection(0);
-                        }
+                        self.tick_state = TickState::OverflowDetection(0);
                     }
                 }
             }

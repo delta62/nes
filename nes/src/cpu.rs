@@ -72,10 +72,10 @@ bitflags! {
         /// shifted out, either due to a shift operation or some mathematical process.
         /// See the documentation for the specific op code to understand what this flag
         /// means in practice.
-        const CARRY       = 0b0000_0001;
+        const CARRY = 0b0000_0001;
 
         /// The zero flag indicates that the last operation resulted in a zero value.
-        const ZERO        = 0b0000_0010;
+        const ZERO = 0b0000_0010;
 
         /// The IRQ disable flag prevents interrupts from being serviced by the CPU.
         /// Note that NMI interrupts cannot be disabled and will always run when the CPU
@@ -84,13 +84,13 @@ bitflags! {
 
         /// The decimal flag is not implemented on the NES, but it is still possible to
         /// set the flag.
-        const DECIMAL     = 0b0000_1000;
+        const DECIMAL = 0b0000_1000;
 
         /// The break bit isn't really a flag in that the hardware doesn't have a flag
         /// to represent a break. However, when the processor pushes its flags to the
         /// stack it pushes a single byte, and bit 4 of that byte can be enabled to
         /// indicate that the interrupt occurred as a result of the BRK opcode.
-        const BREAK       = 0b0001_0000;
+        const BREAK = 0b0001_0000;
 
         // const UNUSED      = 0b0010_0000;
 
@@ -98,11 +98,11 @@ bitflags! {
         /// addition and subtraction, but the actual semantics depend on the opcode. See
         /// the documentation for individual opcodes to understand what this flag means
         /// in practice.
-        const OVERFLOW    = 0b0100_0000;
+        const OVERFLOW = 0b0100_0000;
 
         /// The negative flag indicates that the last operation resulted in a negative
         /// two's complement value, i.e. bit 7 of the result was set.
-        const NEGATIVE    = 0b1000_0000;
+        const NEGATIVE = 0b1000_0000;
     }
 }
 
@@ -483,8 +483,8 @@ impl<M: Mem> Cpu<M> {
     /// two the effective address range for the target instruction must be with
     /// -126 to +129 bytes of the branch.
     fn rel(&mut self, _extra: bool) -> Address {
-        let delta = self.loadb_bump_pc() as i8;
-        let addr = delta as i32 + self.pc as i32;
+        let delta: i32 = self.loadb_bump_pc().into();
+        let addr = delta + self.pc as i32;
         Address::Absolute(addr as u16)
     }
 
@@ -500,7 +500,7 @@ impl<M: Mem> Cpu<M> {
     /// operand evaluates to a zero page address and the instruction supports
     /// the mode (not all do).
     fn zp0(&mut self, _extra: bool) -> Address {
-        let addr = self.loadb_bump_pc() as u16;
+        let addr = self.loadb_bump_pc().into();
         Address::Absolute(addr)
     }
 
@@ -517,7 +517,7 @@ impl<M: Mem> Cpu<M> {
     /// (e.g. $80 + $FF => $7F) and not $017F.
     fn zpx(&mut self, _extra: bool) -> Address {
         let val = self.loadb_bump_pc();
-        let addr = val.wrapping_add(self.x) as u16;
+        let addr = val.wrapping_add(self.x).into();
         Address::Absolute(addr)
     }
 
@@ -527,7 +527,7 @@ impl<M: Mem> Cpu<M> {
     /// mode can only be used with the LDX and STX instructions.
     fn zpy(&mut self, _extra: bool) -> Address {
         let val = self.loadb_bump_pc();
-        let addr = val.wrapping_add(self.y) as u16;
+        let addr = val.wrapping_add(self.y).into();
         Address::Absolute(addr)
     }
 
@@ -537,9 +537,9 @@ impl<M: Mem> Cpu<M> {
     /// accumulator together with the carry bit. If overflow occurs the carry
     /// bit is set, this enables multiple byte addition to be performed.
     fn adc(&mut self, addr: Address) {
-        let m = self.addr_loadb(&addr) as u16;
-        let a = self.a as u16;
-        let c = self.flags.intersection(Flags::CARRY).bits() as u16;
+        let m: u16 = self.addr_loadb(&addr).into();
+        let a: u16 = self.a.into();
+        let c: u16 = self.flags.intersection(Flags::CARRY).bits().into();
 
         let result = a + m + c;
 
@@ -848,7 +848,7 @@ impl<M: Mem> Cpu<M> {
             Address::Absolute(addr) => {
                 self.pc = addr;
             }
-            _ => panic!("JMP only supports absolute or indirect addresses"),
+            _ => unreachable!("JMP only supports absolute or indirect addresses"),
         }
     }
 
@@ -863,9 +863,10 @@ impl<M: Mem> Cpu<M> {
             let return_addr = self.pc.wrapping_sub(1);
             self.pushw(return_addr);
             self.pc = addr;
-        } else {
-            panic!("Only absolute addresses are supported for JSR");
+            return;
         }
+
+        unreachable!("Only absolute addresses are supported for JSR");
     }
 
     /// Halts the CPU.
@@ -1045,12 +1046,12 @@ impl<M: Mem> Cpu<M> {
     ///
     /// A,Z,C,N = A-M-(1-C)
     fn sbc(&mut self, addr: Address) {
-        let m = self.addr_loadb(&addr) as u16;
-        let a = self.a as u16;
+        let mut m: u16 = self.addr_loadb(&addr).into();
+        let a: u16 = self.a.into();
         // 1 when carry flag is set, 0 otherwise
-        let c = self.flags.intersection(Flags::CARRY).bits() as u16;
+        let c: u16 = self.flags.intersection(Flags::CARRY).bits().into();
 
-        let m = m ^ 0x00FF;
+        m ^= 0x00FF;
         let result = a + m + c;
 
         // Set the carry flag if the (signed) result >= 0
@@ -1186,9 +1187,10 @@ impl<M: Mem> Cpu<M> {
             }
 
             self.pc = addr;
-        } else {
-            panic!("Invalid address in branch instruction");
+            return;
         }
+
+        unreachable!("Invalid address in branch instruction");
     }
 
     // Addressing helpers
@@ -1198,8 +1200,8 @@ impl<M: Mem> Cpu<M> {
             Address::Absolute(addr) => self.loadb(*addr),
             Address::Accumulator    => self.a,
             Address::Immediate(val) => *val,
-            Address::Indirect(_)    => panic!("Can't load from indirect address"),
-            Address::Implied        => panic!("Can't load from implied address"),
+            Address::Indirect(_)    => unreachable!("Can't load from indirect address"),
+            Address::Implied        => unreachable!("Can't load from implied address"),
         }
     }
 
@@ -1236,7 +1238,7 @@ impl<M: Mem> Cpu<M> {
     // Stack helpers
 
     fn pushb(&mut self, val: u8) {
-        let s = self.s as u16;
+        let s: u16 = self.s.into();
         let addr = STACK_BASE + s;
         self.s -= 1;
         self.storeb(addr, val);

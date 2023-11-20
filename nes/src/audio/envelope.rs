@@ -60,10 +60,8 @@ impl Envelope {
 
                 if self.decay_counter > 0 {
                     self.decay_counter -= 1;
-                } else {
-                    if self.loop_flag {
-                        self.decay_counter = 15;
-                    }
+                } else if self.loop_flag {
+                    self.decay_counter = 15;
                 }
             }
         }
