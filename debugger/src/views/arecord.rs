@@ -2,12 +2,12 @@ use chrono::Local;
 use imgui::{MenuItem, Ui, im_str};
 use nes::FrameBuffer;
 use super::View;
-use scap::{WavConfig, WavEncoder};
+// use scap::{WavConfig, WavEncoder};
 
 const SAMPLE_RATE: i32 = 44_100;
 
 pub struct AudioRecordView {
-    recorder: Option<WavEncoder>,
+    recorder: Option<()>,
 }
 
 impl AudioRecordView {
@@ -24,17 +24,17 @@ impl AudioRecordView {
 
     fn toggle_recording(&mut self) {
         if self.recorder.is_some() {
-            let recorder = std::mem::take(&mut self.recorder);
-            recorder.unwrap().finish().unwrap();
+            // let recorder = std::mem::take(&mut self.recorder);
+            // recorder.unwrap().finish().unwrap();
         } else {
             let now = Local::now();
             let path = now.format("recording-%Y-%m-%dT%H%M%S.wav").to_string();
-            let config = WavConfig {
-                sample_rate: SAMPLE_RATE,
-            };
+            // let config = WavConfig {
+            //     sample_rate: SAMPLE_RATE,
+            // };
 
-            let encoder = WavEncoder::new(path, &config).unwrap();
-            self.recorder = Some(encoder);
+            // let encoder = WavEncoder::new(path, &config).unwrap();
+            // self.recorder = Some(encoder);
         }
     }
 }
@@ -57,7 +57,7 @@ impl View for AudioRecordView {
         if let Some(stream) = &mut self.recorder {
             let mut samples = framebuffer.take_audio_samples();
 
-            stream.encode(&mut samples).unwrap();
+            // stream.encode(&mut samples).unwrap();
         }
     }
 

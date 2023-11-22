@@ -21,7 +21,7 @@ fn main() {
         .author("Sam Noedel")
         .about("Debugging environment for libnes")
         .arg(Arg::with_name("rom")
-             .required(true)
+             // .required(true)
              .long_help("Path to a .nes ROM file")
         )
         .arg(Arg::with_name("record")
@@ -43,11 +43,11 @@ fn main() {
         .filter_level(LevelFilter::Info)
         .init();
 
-    let path = matches.value_of("rom").unwrap();
+    // let path = matches.value_of("rom").unwrap();
     let record = matches.is_present("record");
     let arecord = matches.is_present("arecord");
 
-    let rom = RomLoader::load(path).unwrap();
+    // let rom = RomLoader::load(path).unwrap();
 
     let frame_buffer = FrameBuffer::new();
     let frame_buffer = Arc::new(Mutex::new(frame_buffer));
@@ -55,9 +55,17 @@ fn main() {
     let (send_frame, receive_frame) = channel();
     let emulation = Emulation::new(frame_buffer.clone(), receive_control, send_frame);
 
-    thread::spawn(move || {
-        DebuggerWindow::new(send_control, receive_frame, frame_buffer, record, arecord).run()
-    });
+    let native_options = eframe::NativeOptions {
+        initial_window_size: Some([1280.0, 720.0].into()),
+        min_window_size: Some([1280.0, 720.0].into()),
+        ..Default::default()
+    };
 
-    emulation.run(rom);
+    eframe::run_native(
+        "NES Debugger",
+        native_options,
+        Box::new(move |cc| Box::new(DebuggerWindow::new(send_control, receive_frame, frame_buffer, record, arecord))),
+    ).unwrap();
+
+    // emulation.run(rom);
 }

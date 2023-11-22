@@ -1,15 +1,18 @@
 use chrono::Local;
-use glfw::{Key, WindowEvent};
-use imgui::{Ui, MenuItem, im_str};
+use egui::{Button, Ui, KeyboardShortcut, os::OperatingSystem, ModifierNames};
 use nes::FrameBuffer;
 use super::View;
-use crate::macros::press_ctrl;
 use std::io::BufWriter;
 use std::path::Path;
 use std::fs::File;
 
+const SHORTCUT: KeyboardShortcut = KeyboardShortcut {
+    modifiers: egui::Modifiers::CTRL,
+    key: egui::Key::P,
+};
+
 pub struct ScreenshotView {
-    last_frame: [ u8; 0x2D000 ], // 256 * 240 * 3
+    last_frame: [ u8; 256 * 240 * 3 ], // 0x2D000 ], // 256 * 240 * 3
 }
 
 impl ScreenshotView {
@@ -38,13 +41,12 @@ impl ScreenshotView {
 }
 
 impl View for ScreenshotView {
-    fn custom_menu(&mut self, ui: &Ui) {
-        ui.menu(im_str!("Screenshot"), true, || {
-            let screenshot = MenuItem::new(im_str!("Screenshot"))
-                .shortcut(im_str!("Ctrl-P"))
-                .build(&ui);
+    fn custom_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Screenshot", |ui| {
+            let button = Button::new("Screenshot")
+                .shortcut_text(SHORTCUT.format(&ModifierNames::NAMES, OperatingSystem::from_target_os() == OperatingSystem::Mac));
 
-            if screenshot {
+            if ui.add(button).clicked() {
                 self.screenshot();
             }
         });
@@ -54,8 +56,8 @@ impl View for ScreenshotView {
         self.last_frame.copy_from_slice(framebuffer.frame());
     }
 
-    fn key_event(&mut self, event: &WindowEvent) {
-        if press_ctrl(Key::P, event) {
+    fn input(&mut self, input_state: &mut egui::InputState) {
+        if input_state.consume_shortcut(&SHORTCUT) {
             self.screenshot();
         }
     }

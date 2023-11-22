@@ -1,6 +1,5 @@
-use imgui::{Image, MenuItem, StyleColor, StyleVar, Ui, Window, im_str};
+use egui::{Context, Ui};
 use nes::FrameBuffer;
-use super::texture::Texture;
 use super::View;
 
 const SCREEN_WIDTH: f32 = 256.0;
@@ -8,36 +7,17 @@ const SCREEN_HEIGHT: f32 = 240.0;
 
 pub struct NesView {
     attr_overlay: bool,
-    frame_no: usize,
     last_frame: [u8; 256 * 240 * 3],
-    tex: Texture,
+    texture: Option<egui::TextureHandle>,
 }
 
 impl NesView {
     pub fn new() -> Self {
-        let tex = Texture::new();
-        let frame_no = 0;
         let last_frame = [ 0; 256 * 240 * 3 ];
         let attr_overlay = false;
+        let texture = None;
 
-        Self { attr_overlay, frame_no, last_frame, tex }
-    }
-
-    /// Scale the given source height and width to fill the given bounds while maintaining
-    /// the original aspect ratio
-    fn scale(src_height: f32, src_width: f32, bounds: [f32; 2]) -> [f32; 2 ] {
-        let width_ratio = bounds[0] / src_width;
-        let height_ratio = bounds[1] / src_height;
-
-        if width_ratio > height_ratio {
-            let height = bounds[1];
-            let width = src_width * height_ratio;
-            [ height, width ]
-        } else {
-            let height = src_height * width_ratio;
-            let width = bounds[0];
-            [ height, width ]
-        }
+        Self { attr_overlay, last_frame, texture }
     }
 
     fn repaint(&mut self) {
@@ -64,52 +44,48 @@ impl NesView {
                     tmp_frame[addr + 2] = 0xA0;
                 }
             }
-
-            self.tex.update(SCREEN_WIDTH as _, SCREEN_HEIGHT as _, &tmp_frame);
-        } else {
-            self.tex.update(SCREEN_WIDTH as _, SCREEN_HEIGHT as _, &self.last_frame);
         };
     }
 }
 
 impl View for NesView {
-    fn window(&mut self, ui: &Ui) {
-        let style = ui.push_style_var(StyleVar::WindowPadding([ 0.0, 0.0 ]));
-        let bg_black = ui.push_style_color(StyleColor::WindowBg, [ 0.0, 0.0, 0.0, 1.0 ]);
+    fn window(&mut self, ctx: &Context) {
+        let last_frame = &self.last_frame;
+        let t = &mut self.texture;
 
-        Window::new(im_str!("NES"))
+        let texture = t.get_or_insert_with(|| {
+            let img = egui::ColorImage::from_rgb([ 256, 240 ], last_frame);
+            ctx.load_texture(
+                "NES Screen",
+                img,
+                Default::default())
+        });
+
+        egui::Window::new("NES")
             .collapsible(false)
-            .size_constraints([ SCREEN_WIDTH, SCREEN_HEIGHT ], [ f32::MAX, f32::MAX ])
-            .build(&ui, || {
-                let win_size = ui.window_size();
-                let img_size = NesView::scale(SCREEN_WIDTH, SCREEN_HEIGHT, win_size);
-
-                // Center the image
-                let img_left = (win_size[0] - img_size[0]) / 2.0;
-                let img_top = (win_size[1] - img_size[1]) / 2.0;
-                ui.set_cursor_pos([ img_left, img_top ]);
-
-                Image::new(self.tex.id(), img_size).build(ui);
+            .default_size([ SCREEN_WIDTH, SCREEN_HEIGHT ])
+            .min_width(SCREEN_WIDTH)
+            .min_height(SCREEN_HEIGHT)
+            .frame(egui::Frame::none()
+                .fill(egui::Color32::BLACK)
+                .inner_margin(egui::Margin::ZERO))
+            .show(ctx, |ui| {
+                ui.image((texture.id(), texture.size_vec2()));
             });
-
-        style.pop(&ui);
-        bg_black.pop(&ui);
     }
 
-    fn custom_menu(&mut self, ui: &Ui) {
-        ui.menu(im_str!("Picture"), true, || {
-            if MenuItem::new(im_str!("Attribute Table Grid"))
-                .selected(self.attr_overlay)
-                .build(&ui) {
-                    self.attr_overlay = !self.attr_overlay;
-                    self.repaint();
-                }
+    fn custom_menu(&mut self, ui: &mut Ui) {
+        ui.menu_button("Picture", |ui| {
+            let button = egui::Button::new("Attribute Table Grid")
+                .selected(self.attr_overlay);
+
+            if ui.add(button).clicked() {
+                self.attr_overlay = !self.attr_overlay;
+            }
         });
     }
 
     fn on_frame(&mut self, framebuffer: &mut FrameBuffer) {
-        self.frame_no += 1;
-
         self.last_frame.copy_from_slice(framebuffer.frame());
         self.repaint();
     }
