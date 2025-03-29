@@ -1,6 +1,6 @@
 use crate::views::{
     CpuView,
-    // DebugView,
+    DebugView,
     // LogView,
     // NametableView,
     NesView,
@@ -11,26 +11,44 @@ use crate::views::{
     // RecordView,
     // AudioRecordView,
     ScreenshotView,
-    View
+    View,
 };
-use nes::{Button, ButtonState, ControlMessage, EmulationState, FrameBuffer, VideoMessage};
-use std::sync::{Arc, Mutex};
+use egui::{Button, KeyboardShortcut};
+use nes::{ControlMessage, EmulationState, VideoMessage};
 use std::sync::mpsc::{Receiver, Sender};
 
+const QUIT_SHORTCUT: KeyboardShortcut = shortcut!(CTRL, Q);
+
 pub struct DebuggerWindow {
-    frame_buffer: Arc<Mutex<FrameBuffer>>,
     receive_frame: Receiver<VideoMessage>,
     send_control: Sender<ControlMessage>,
     views: Vec<Box<dyn View>>,
+    first_update: bool,
+}
+
+fn exit(ctx: &egui::Context) {
+    let ctx = ctx.clone();
+    std::thread::spawn(move || ctx.send_viewport_cmd(egui::ViewportCommand::Close));
 }
 
 impl eframe::App for DebuggerWindow {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        if self.first_update {
+            let views = &mut self.views;
+            let ctrl = &self.send_control;
+
+            views.iter_mut().for_each(|view| view.init(ctrl));
+            self.first_update = false;
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Quit").clicked() {
-                        frame.close();
+                    let button =
+                        Button::new("Quit").shortcut_text(ctx.format_shortcut(&QUIT_SHORTCUT));
+
+                    if ui.add(button).clicked() {
+                        exit(ctx)
                     }
                 });
 
@@ -38,9 +56,37 @@ impl eframe::App for DebuggerWindow {
                     self.views.iter_mut().for_each(|v| v.main_menu(ui));
                 });
 
-                self.views.iter_mut().for_each(|v| v.custom_menu(ui));
+                self.views.iter_mut().for_each(|v| v.custom_menu(ui, ctx));
             });
         });
+
+        ctx.input_mut(|i| {
+            if i.consume_shortcut(&QUIT_SHORTCUT) {
+                exit(ctx);
+            }
+        });
+
+        loop {
+            match self.receive_frame.try_recv() {
+                Ok(VideoMessage::FrameAvailable(frame)) => {
+                    let views = &mut self.views;
+                    let ctrl = &self.send_control;
+                    views.iter_mut().for_each(|v| v.on_frame(&frame, ctrl));
+                    let _ = self.send_control.send(ControlMessage::RecycleFrame(frame));
+                }
+                Ok(VideoMessage::ControlResponse(res)) => {
+                    self.views
+                        .iter_mut()
+                        .for_each(|v| v.on_control_response(&res));
+                }
+                Ok(VideoMessage::StateChanged(new_state)) => {
+                    self.views
+                        .iter_mut()
+                        .for_each(|v| v.on_state_change(new_state));
+                }
+                Err(_) => break,
+            }
+        }
 
         for view in self.views.iter_mut() {
             ctx.input_mut(|input| view.input(input));
@@ -51,17 +97,18 @@ impl eframe::App for DebuggerWindow {
 
 impl DebuggerWindow {
     pub fn new(
+        initial_state: EmulationState,
         send_control: Sender<ControlMessage>,
         receive_frame: Receiver<VideoMessage>,
-        frame_buffer: Arc<Mutex<FrameBuffer>>,
-        record: bool,
-        arecord: bool,
+        _record: bool,
+        _arecord: bool,
     ) -> Self {
+        let first_update = true;
         let views: Vec<Box<dyn View>> = vec![
-            Box::new(CpuView::new()),
-            // Box::new(DebugView::new()),
+            Box::new(CpuView::new(initial_state)),
+            Box::new(DebugView::new(send_control.clone())),
             Box::new(NesView::new()),
-            Box::new(PpuView::new()),
+            Box::new(PpuView::new(initial_state)),
             // Box::new(LogView::new()),
             // Box::new(PaletteView::new()),
             Box::new(ScreenshotView::new()),
@@ -72,84 +119,11 @@ impl DebuggerWindow {
             // Box::new(OamView::new()),
         ];
 
-        send_control.send(ControlMessage::SetState(EmulationState::Run)).unwrap();
-
         Self {
-            frame_buffer,
             receive_frame,
             send_control,
             views,
+            first_update,
         }
     }
-
-    pub fn run(&mut self) {
-        // while !self.window.should_close() {
-
-        //     if let Ok(message) = self.receive_frame.try_recv() {
-        //         match message {
-        //             VideoMessage::FrameAvailable => {
-        //                 let mut fb = self.frame_buffer.lock().expect("Can't lock framebuffer for reading");
-        //                 self.views.iter_mut().for_each(|v| v.on_frame(&mut fb));
-        //             }
-        //         }
-        //     }
-
-
-
-        // self.glfw.poll_events();
-        // for (_, event) in glfw::flush_messages(&self.events) {
-        //     self.imgui_glfw.handle_event(&mut self.imgui, &event);
-
-        //     views.iter_mut().for_each(|v| v.key_event(&event));
-
-        //     match event {
-        //         WindowEvent::Key(Key::Q, _, Action::Press, Modifiers::Control) => {
-        //             self.window.set_should_close(true);
-        //         }
-
-        //         event => {
-        //             let nes_button_press = to_nes(&event);
-
-        //             if let Some((button, state)) = nes_button_press {
-        //                 let message = ControlMessage::ControllerInput(button, state);
-        //                 self.send_control.send(message).expect("NES thread hung up!");
-        //             }
-        //         }
-        //     }
-        // }
-
-        self.views.iter_mut().for_each(|v| v.destroy());
-
-        self.send_control.send(ControlMessage::SetState(EmulationState::Kill)).unwrap();
-    }
 }
-
-// Convert a GLFW key event to an NES controller input event
-// fn to_nes(event: &WindowEvent) -> Option<(Button, ButtonState)> {
-//     if let WindowEvent::Key(key, _, action, _) = event {
-//         let state = match action {
-//             Action::Press   => Some(ButtonState::Press),
-//             Action::Release => Some(ButtonState::Release),
-//             Action::Repeat  => None,
-//         };
-
-//         let button = match key {
-//             Key::Enter     => Some(Button::Start),
-//             Key::Backspace => Some(Button::Select),
-//             Key::Z         => Some(Button::A),
-//             Key::X         => Some(Button::B),
-//             Key::Up        => Some(Button::Up),
-//             Key::Down      => Some(Button::Down),
-//             Key::Left      => Some(Button::Left),
-//             Key::Right     => Some(Button::Right),
-//             _              => None,
-//         };
-
-//         match (button, state) {
-//             (Some(b), Some(s)) => Some((b, s)),
-//             _                  => None,
-//         }
-//     } else {
-//         None
-//     }
-// }

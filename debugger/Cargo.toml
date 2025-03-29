@@ -1,7 +1,7 @@
 [package]
 name = "debugger"
 version = "0.0.1"
-authors = [ "sam.noedel@gmail.com" ]
+authors = ["sam.noedel@gmail.com"]
 edition = "2018"
 description = "Debugger for libnes development"
 publish = false
@@ -9,8 +9,9 @@ publish = false
 [dependencies]
 chrono = "^0.4.19"
 clap = "^2.33.3"
-eframe = "0.23.0"
-egui = "0.23.0"
+cpal = "^0.15.3"
+eframe = "^0.31.1"
+egui = "^0.31.1"
 env_logger = "^0.9.0"
 getset = "^0.1.1"
 gl = "^0.14.0"

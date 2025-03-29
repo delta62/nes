@@ -1,163 +1,106 @@
-use crate::macros::{press, press_alt};
-use glfw::{Key, WindowEvent};
-use imgui::{MenuItem, Ui, Window, im_str};
-use nes::Nes;
 use super::View;
+use egui::{os::OperatingSystem, Context, KeyboardShortcut, ModifierNames, Ui};
+use nes::{ControlMessage, EmulationState};
+use std::sync::mpsc::Sender;
+
+const SHOW_DEBUGGER: KeyboardShortcut = shortcut!(ALT, D);
+const STEP_CPU: KeyboardShortcut = shortcut!(S);
+const RUN: KeyboardShortcut = shortcut!(R);
+const PAUSE: KeyboardShortcut = shortcut!(P);
 
 pub struct DebugView {
     opened: bool,
+    state: EmulationState,
+    send_event: Sender<ControlMessage>,
 }
 
 impl DebugView {
-    pub fn new() -> Self {
+    pub fn new(send_event: Sender<ControlMessage>) -> Self {
         let opened = false;
-        Self { opened }
+        let state = EmulationState::Pause;
+        Self {
+            opened,
+            state,
+            send_event,
+        }
+    }
+
+    fn send(&self, state: EmulationState) {
+        let msg = ControlMessage::SetState(state);
+        let _ = self.send_event.send(msg);
     }
 }
 
-impl View for DebugView { }
-//     fn main_menu(&mut self, ui: &Ui) {
-//         let toggle = MenuItem::new(im_str!("Debug"))
-//             .shortcut(im_str!("Alt-D"))
-//             .selected(self.opened)
-//             .build(&ui);
-//
-//         if toggle {
-//             self.opened = !self.opened;
-//         }
-//     }
-//
-//     fn window(&mut self, ui: &Ui, _nes: &Nes, state: &mut EmulationState) {
-//         if !self.opened {
-//             return;
-//         }
-//
-//         Window::new(im_str!("Debug"))
-//             .opened(&mut self.opened)
-//             .always_auto_resize(true)
-//             .build(&ui, || {
-//                 ui.text(im_str!("{:?}", state));
-//
-//                 ui.spacing();
-//
-//                 let step = ui.button(im_str!("Step"), [ 50.0, 22.0 ]);
-//                 ui.same_line_with_spacing(0.0, 10.0);
-//                 let run = ui.button(im_str!("Run"), [ 50.0, 22.0 ]);
-//                 ui.same_line_with_spacing(0.0, 10.0);
-//                 let pause = ui.button(im_str!("Pause"), [ 50.0, 22.0 ]);
-//                 let instr = ui.button(im_str!("Instr"), [ 50.0, 22.0 ]);
-//                 ui.same_line_with_spacing(0.0, 10.0);
-//                 let line = ui.button(im_str!("Line"), [ 50.0, 22.0 ]);
-//                 ui.same_line_with_spacing(0.0, 10.0);
-//                 let frame = ui.button(im_str!("Frame"), [ 50.0, 22.0 ]);
-//
-//                 if run {
-//                     *state = EmulationState::Running;
-//                 }
-//
-//                 if pause {
-//                     *state = EmulationState::Paused;
-//                 }
-//
-//                 if step {
-//                     *state = EmulationState::StepCpuOnce;
-//                 }
-//
-//                 if instr {
-//                     *state = EmulationState::CpuInstruction;
-//                 }
-//
-//                 if line {
-//                     *state = EmulationState::PpuLine;
-//                 }
-//
-//                 if frame {
-//                     *state = EmulationState::PpuFrame;
-//                 }
-//             });
-//     }
-//
-//     fn custom_menu(&mut self, ui: &Ui, state: &mut EmulationState) {
-//         ui.menu(im_str!("Emulation"), true, || {
-//             let pause = MenuItem::new(im_str!("Pause"))
-//                 .selected(*state == EmulationState::Paused)
-//                 .shortcut(im_str!("P"))
-//                 .build(&ui);
-//
-//             let run = MenuItem::new(im_str!("Run"))
-//                 .selected(*state == EmulationState::Running)
-//                 .shortcut(im_str!("R"))
-//                 .build(&ui);
-//
-//             let instr = MenuItem::new(im_str!("Next Instr"))
-//                 .shortcut(im_str!("I"))
-//                 .build(&ui);
-//
-//             let step = MenuItem::new(im_str!("Step CPU"))
-//                 .shortcut(im_str!("S"))
-//                 .build(&ui);
-//
-//             let line = MenuItem::new(im_str!("Next Line"))
-//                 .shortcut(im_str!("L"))
-//                 .build(&ui);
-//
-//             let frame = MenuItem::new(im_str!("Next Frame"))
-//                 .shortcut(im_str!("F"))
-//                 .build(&ui);
-//
-//             if pause {
-//                 *state = EmulationState::Paused;
-//             }
-//
-//             if run {
-//                 *state = EmulationState::Running;
-//             }
-//
-//             if instr {
-//                 *state = EmulationState::CpuInstruction;
-//             }
-//
-//             if step {
-//                 *state = EmulationState::StepCpuOnce;
-//             }
-//
-//             if line {
-//                 *state = EmulationState::PpuLine;
-//             }
-//
-//             if frame {
-//                 *state = EmulationState::PpuFrame;
-//             }
-//         });
-//     }
-//
-//     fn key_event(&mut self, event: &WindowEvent, state: &mut EmulationState) {
-//         if press(Key::S, event) {
-//             *state = EmulationState::StepCpuOnce;
-//         }
-//
-//         if press(Key::I, event) {
-//             *state = EmulationState::CpuInstruction;
-//         }
-//
-//         if press(Key::R, event) {
-//             *state = EmulationState::Running;
-//         }
-//
-//         if press(Key::P, event) {
-//             *state = EmulationState::Paused;
-//         }
-//
-//         if press(Key::F, event) {
-//             *state = EmulationState::PpuFrame;
-//         }
-//
-//         if press(Key::P, event) {
-//             *state = EmulationState::PpuLine;
-//         }
-//
-//         if press_alt(Key::D, event) {
-//             self.opened = !self.opened;
-//         }
-//     }
-// }
+impl View for DebugView {
+    fn main_menu(&mut self, ui: &mut Ui) {
+        let button = egui::Button::new("Debugger")
+            .selected(self.opened)
+            .shortcut_text(SHOW_DEBUGGER.format(
+                &ModifierNames::NAMES,
+                OperatingSystem::from_target_os() == OperatingSystem::Mac,
+            ));
+
+        if ui.add(button).clicked() {
+            self.opened = !self.opened;
+        }
+    }
+
+    fn window(&mut self, ctx: &Context) {
+        if !self.opened {
+            return;
+        }
+
+        egui::Window::new("Debugger").auto_sized().show(ctx, |ui| {
+            ui.label(format!("Emulation state: {:?}", self.state));
+
+            egui::Grid::new("debugger").striped(true).show(ui, |ui| {
+                ui.label(format!("{:?}", self.state));
+                ui.end_row();
+                ui.separator();
+                ui.end_row();
+
+                if ui.button("Step").clicked() {
+                    self.send(EmulationState::Step);
+                }
+
+                if ui.button("Run").clicked() {
+                    self.send(EmulationState::Run);
+                }
+
+                if ui.button("Pause").clicked() {
+                    self.send(EmulationState::Pause);
+                }
+            });
+        });
+    }
+
+    fn input(&mut self, input_state: &mut egui::InputState) {
+        if input_state.consume_shortcut(&SHOW_DEBUGGER) {
+            self.opened = !self.opened;
+        }
+
+        if input_state.consume_shortcut(&RUN) {
+            self.send(EmulationState::Run);
+        }
+
+        if input_state.consume_shortcut(&PAUSE) {
+            self.send(EmulationState::Pause);
+        }
+
+        if input_state.consume_shortcut(&STEP_CPU) {
+            self.send(EmulationState::Step);
+        }
+    }
+
+    fn custom_menu(&mut self, ui: &mut Ui, ctx: &Context) {
+        ui.menu_button("Emulation", |ui| {
+            let pause = egui::Button::new("Pause").shortcut_text(ctx.format_shortcut(&PAUSE));
+            let play = egui::Button::new("Run").shortcut_text(ctx.format_shortcut(&PAUSE));
+            let step_cpu = egui::Button::new("Step CPU").shortcut_text(ctx.format_shortcut(&PAUSE));
+
+            ui.add(pause);
+            ui.add(play);
+            ui.add(step_cpu);
+        });
+    }
+}

@@ -1,239 +1,265 @@
-use crate::input::{Button, ButtonState, InputState};
+use crate::cpu::Flags;
+use crate::frame_buffer::{Frame, FrameBuffer};
+use crate::input::{ButtonState, Buttons};
+use crate::mem::Mem;
 use crate::nes::Nes;
+use crate::ppu::{PpuControl, PpuMask, PpuStatus};
 use crate::rom::Rom;
+use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{Device, SampleFormat, SampleRate, Stream, StreamConfig, SupportedStreamConfigRange};
 use dasp::{interpolate::linear::Linear, Signal};
-use log::warn;
-use pcm::{Device as AudioDevice, DeviceConfig as AudioDeviceConfig};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::thread;
+use std::mem;
+use std::sync::mpsc::{Receiver, Sender};
 
 const AUDIO_SAMPLE_RATE: u32 = 44_100;
 const CPU_FREQUENCY: f64 = 1_789_773.0;
-const FRAME_SIZE: usize = 256 * 240 * 3;
-const MAX_FB_SAMPLES: usize = (AUDIO_SAMPLE_RATE / 60 * 3) as usize; // 3 frames of audio
 
 #[derive(Debug)]
-enum AudioMessage {
-    NeedMoreData(usize),
+pub enum ControlRequest {
+    RegisterState,
+    PpuState,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct PpuState {
+    // Picture state
+    pub cycle: u64,
+    pub frame: u64,
+    pub scanline: u16,
+    pub pixel: u16,
+
+    // Registers
+    pub ctrl: PpuControl,
+    pub mask: PpuMask,
+    pub status: PpuStatus,
+    pub oamaddr: u16,
+    pub oamdata: u8,
+    pub scroll_x: u8,
+    pub scroll_y: u8,
+    pub addr: u8,
+    pub data: u8,
+    pub oamdma: u8,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct RegisterState {
+    pub cycle: u64,
+    pub pc: u16,
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub s: u8,
+    pub p: Flags,
+}
+
+#[derive(Debug)]
+pub enum ControlResponse {
+    RegisterState(RegisterState),
+    PpuState(PpuState),
 }
 
 #[derive(Debug)]
 pub enum VideoMessage {
-    FrameAvailable,
+    ControlResponse(ControlResponse),
+    FrameAvailable(Frame),
+    StateChanged(EmulationState),
 }
 
 #[derive(Debug)]
 pub enum ControlMessage {
-    ControllerInput(Button, ButtonState),
+    ControllerInput { button: Buttons, state: ButtonState },
     SetState(EmulationState),
+    RecycleFrame(Frame),
+    ControlRequest(ControlRequest),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum EmulationState {
+    /// The emulation has been ended by the user
     Kill,
+
+    /// The emulation should step forward by one CPU tick, then transition into the Pause state
+    Step,
+
+    /// The emulation should remain paused forever
     Pause,
+
+    /// The emulation should run uninterrupted until a user changes the state
     Run,
 }
 
-pub struct FrameBuffer {
-    audio_samples: VecDeque<f32>,
-    buff: [u8; FRAME_SIZE],
-}
-
-impl FrameBuffer {
-    pub fn new() -> Self {
-        let audio_samples = VecDeque::with_capacity(MAX_FB_SAMPLES);
-        let buff = [0; FRAME_SIZE];
-
-        Self { audio_samples, buff }
-    }
-
-    fn add_audio_sample(&mut self, sample: f32) {
-        if self.audio_samples.len() < MAX_FB_SAMPLES {
-            self.audio_samples.push_back(sample);
+fn handle_control_message(
+    message: ControlMessage,
+    nes: &mut Nes,
+    state: &mut EmulationState,
+    on_frame: &Sender<VideoMessage>,
+    frame_buffer: &mut FrameBuffer,
+) {
+    println!("{:?}", message);
+    match message {
+        ControlMessage::SetState(s) => {
+            if s != *state {
+                *state = s;
+                let msg = VideoMessage::StateChanged(s);
+                let _ = on_frame.send(msg);
+            }
         }
-    }
+        ControlMessage::ControllerInput { state, button } => match state {
+            ButtonState::Pressed => nes.cpu.mem.input.press(button),
+            ButtonState::Release => nes.cpu.mem.input.release(button),
+        },
+        ControlMessage::RecycleFrame(frame) => frame_buffer.put(frame),
+        ControlMessage::ControlRequest(req) => match req {
+            ControlRequest::RegisterState => {
+                let state = RegisterState {
+                    a: nes.cpu.a,
+                    x: nes.cpu.x,
+                    y: nes.cpu.y,
+                    s: nes.cpu.s,
+                    cycle: nes.cpu.cy,
+                    p: nes.cpu.flags,
+                    pc: nes.cpu.pc,
+                };
 
-    pub fn take_audio_samples(&mut self) -> VecDeque<f32> {
-        let new_samples = VecDeque::with_capacity(MAX_FB_SAMPLES);
+                let _ = on_frame.send(VideoMessage::ControlResponse(
+                    ControlResponse::RegisterState(state),
+                ));
+            }
+            ControlRequest::PpuState => {
+                let ppu = &nes.cpu.mem.ppu;
+                let state = PpuState {
+                    cycle: ppu.cycle(),
+                    frame: ppu.frame(),
+                    scanline: ppu.scanline(),
+                    pixel: ppu.pixel(),
 
-        std::mem::replace(&mut self.audio_samples, new_samples)
-    }
+                    ctrl: ppu.ppuctrl.clone(),
+                    mask: ppu.ppumask.clone(),
+                    status: ppu.ppustatus.clone(),
+                    addr: 0,
+                    data: 0,
+                    oamaddr: ppu.oam.addr(),
+                    oamdata: ppu.oam.peekb(0x2004),
+                    oamdma: 0,
+                    scroll_x: ppu.scroll_x(),
+                    scroll_y: ppu.scroll_y(),
+                };
 
-    pub fn frame(&self) -> &[u8] {
-        &self.buff
-    }
-
-    fn update(&mut self, frame: &[u8]) {
-        self.buff.copy_from_slice(frame);
-    }
-}
-
-struct AudioThread;
-
-impl AudioThread {
-    fn run(
-        frame_buffer: Arc<Mutex<FrameBuffer>>,
-        sample_buffer: Arc<Mutex<VecDeque<f32>>>,
-        sender: Sender<AudioMessage>,
-    ) {
-        thread::spawn(|| {
-            let config = AudioDeviceConfig {
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 1,
-                buffer_target_us: 42_000,
-                period_target_us: 8_000,
-            };
-
-            let audio_device = AudioDevice::with_config(config)
-                .expect("Unable to start audio playback");
-
-            audio_device.run(move |queue, wanted| {
-                let mut samples = sample_buffer.lock().unwrap();
-                let mut fb = frame_buffer.lock().unwrap();
-
-                for _ in 0..wanted {
-                    let sample = match samples.pop_front() {
-                        Some(s) => s,
-                        None => {
-                            warn!("Not enough audio left in buffer");
-                            0.0
-                        }
-                    };
-
-                    queue.push_back(sample);
-                    fb.add_audio_sample(sample);
-                }
-
-                sender
-                    .send(AudioMessage::NeedMoreData(wanted))
-                    .expect("Audio receiver hung up!");
-            });
-        });
+                let res = ControlResponse::PpuState(state);
+                let _ = on_frame.send(VideoMessage::ControlResponse(res));
+            }
+        },
     }
 }
 
-pub struct Emulation {
-    sample_buffer: Arc<Mutex<VecDeque<f32>>>,
-    frame_buffer: Arc<Mutex<FrameBuffer>>,
-    on_control: Receiver<ControlMessage>,
+/// Run the emulator using the system's sound card to control emulation speed.
+/// The emulation is initially paused. Send a ControlMessage to start it.
+pub fn run(
+    rom: Rom,
     on_frame: Sender<VideoMessage>,
-    state: EmulationState,
-    input_state: InputState,
+    on_control: Receiver<ControlMessage>,
+) -> Stream {
+    let mut nes = Nes::with_rom(rom);
+    let mut state = EmulationState::Pause;
+    let input_state = Default::default();
+    let mut frame_buffer = FrameBuffer::new();
 
-    last1: f32,
-    last2: f32,
+    let signal = dasp::signal::gen_mut(move || {
+        for message in on_control.try_iter() {
+            handle_control_message(message, &mut nes, &mut state, &on_frame, &mut frame_buffer);
+        }
+
+        match state {
+            EmulationState::Pause | EmulationState::Kill => 0.0f32,
+            EmulationState::Run | EmulationState::Step => {
+                let step_result = nes.step(&input_state);
+                let sample = nes.cpu.mem.apu.sample();
+
+                if state == EmulationState::Step {
+                    state = EmulationState::Pause;
+                }
+
+                if step_result.new_frame {
+                    let frame = mem::replace(
+                        &mut nes.cpu.mem.ppu.screen,
+                        frame_buffer
+                            .get()
+                            .expect("No frames available to send back to the client!"),
+                    );
+                    let message = VideoMessage::FrameAvailable(frame);
+
+                    // Discard send errors - if the other end of the channel hung up
+                    // we are most likely shutting down
+                    let _ = on_frame.send(message);
+                }
+
+                sample
+            }
+        }
+    });
+
+    let linear = Linear::new(0.0f32, 0.0f32);
+    let mut signal = signal.from_hz_to_hz(linear, CPU_FREQUENCY, AUDIO_SAMPLE_RATE as f64);
+
+    let output_device = get_output_device().expect("Unable to find an audio playback device");
+    println!("Using output device: {}", output_device.name().unwrap());
+    let suitable_config = start_audio_stream(&output_device).expect("Unable to start audio stream");
+
+    output_device
+        .build_output_stream(
+            &suitable_config,
+            move |a: &mut [f32], _b| {
+                let samples_to_collect = a.len();
+
+                for i in 0..samples_to_collect {
+                    let sample = signal.next();
+                    a[i] = sample;
+                }
+            },
+            |err| panic!("Error playing audio: {:?}", err),
+            None,
+        )
+        .expect("Unable to build audio stream")
 }
 
-impl Emulation {
-    pub fn new(
-        frame_buffer: Arc<Mutex<FrameBuffer>>,
-        on_control: Receiver<ControlMessage>,
-        on_frame: Sender<VideoMessage>,
-    ) -> Self {
-        let state = EmulationState::Pause;
-        let input_state = InputState::default();
+fn get_output_device() -> Option<Device> {
+    let host = cpal::default_host();
 
-        let sample_buffer: VecDeque<f32> = VecDeque::with_capacity(8_000);
-        let sample_buffer = Arc::new(Mutex::new(sample_buffer));
+    host.output_devices()
+        .unwrap()
+        .into_iter()
+        .filter_map(|device| {
+            let devname = device.name().ok()?;
 
-        let last1 = 0.0;
-        let last2 = 0.0;
+            let b = device
+                .supported_output_configs()
+                .ok()?
+                .any(|cfg| stream_config_supported(&cfg));
 
-        Self {
-            frame_buffer,
-            input_state,
-            last1,
-            last2,
-            on_control,
-            on_frame,
-            sample_buffer,
-            state,
-        }
-    }
-
-    pub fn run(mut self, rom: Rom) {
-        let mut nes = Nes::with_rom(rom);
-        let (audio_tx, mut audio_rx) = channel();
-
-        let audio_buf = self.sample_buffer.clone();
-        let audio_fb = self.frame_buffer.clone();
-        AudioThread::run(audio_fb, audio_buf, audio_tx);
-
-        loop {
-            self.process_events();
-
-            if let EmulationState::Kill = self.state {
-                break;
+            if !devname.contains("microphone") && b {
+                Some(device)
+            } else {
+                None
             }
+        })
+        .next()
+}
 
-            self.produce_audio(&mut audio_rx, &mut nes);
-        }
-    }
+fn start_audio_stream(device: &Device) -> Option<StreamConfig> {
+    let mut supported_configs = device.supported_output_configs().ok()?;
 
-    fn produce_audio(&mut self, audio_rx: &mut Receiver<AudioMessage>, nes: &mut Nes) {
-        let message = audio_rx.recv().expect("Audio thread hung up!");
-        match message {
-            AudioMessage::NeedMoreData(wanted) => {
+    Some(
+        supported_configs
+            .find(stream_config_supported)?
+            .with_sample_rate(SampleRate(AUDIO_SAMPLE_RATE))
+            .config(),
+    )
+}
 
-                let state = &self.state;
-                let input_state = &self.input_state;
-                let frame_buffer = &mut self.frame_buffer;
-                let on_frame = &mut self.on_frame;
-
-                let signal = dasp::signal::gen_mut(|| {
-                    match state {
-                        EmulationState::Pause | EmulationState::Kill => 0.0,
-                        EmulationState::Run => {
-                            let step_result = nes.step(input_state);
-                            let sample = nes.apu().borrow().sample();
-
-                            if step_result.new_frame {
-                                let ppu = nes.ppu().borrow();
-                                let mut fb = frame_buffer
-                                    .lock()
-                                    .expect("Unable to lock framebuffer");
-
-                                fb.update(ppu.screen().as_ref());
-
-                                on_frame
-                                    .send(VideoMessage::FrameAvailable)
-                                    .expect("Video thread hung up!");
-                            }
-
-                            sample
-                        }
-                    }
-                });
-
-                let linear = Linear::new(self.last1, self.last2);
-                let mut signal = signal.from_hz_to_hz(
-                    linear,
-                    CPU_FREQUENCY,
-                    AUDIO_SAMPLE_RATE as f64
-                );
-                let mut sample_buffer = self.sample_buffer.lock().unwrap();
-
-                for _ in 0..wanted {
-                    let sample = signal.next();
-                    self.last1 = self.last2;
-                    self.last2 = sample;
-                    sample_buffer.push_back(sample);
-                }
-            }
-        }
-    }
-
-    fn process_events(&mut self) {
-        for message in self.on_control.try_iter() {
-            match message {
-                ControlMessage::SetState(state) => self.state = state,
-                ControlMessage::ControllerInput(button, state) => {
-                    self.input_state.gamepad1.button_press(button, state);
-                }
-            }
-        }
-    }
+fn stream_config_supported(cfg: &SupportedStreamConfigRange) -> bool {
+    cfg.channels() == 1
+        && cfg.sample_format() == SampleFormat::U8
+        && cfg
+            .try_with_sample_rate(SampleRate(AUDIO_SAMPLE_RATE))
+            .is_some()
 }

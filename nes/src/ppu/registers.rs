@@ -1,6 +1,7 @@
 use log::warn;
 use std::ops::Deref;
 
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PpuControl(u8);
 
 impl PpuControl {
@@ -23,19 +24,35 @@ impl PpuControl {
     }
 
     pub fn vram_addr_increment(&self) -> u16 {
-        if bit!(self.0, 2) { 32 } else { 1 }
+        if bit!(self.0, 2) {
+            32
+        } else {
+            1
+        }
     }
 
     pub fn sprite_pattern_table_address(&self) -> u16 {
-        if bit!(self.0, 3) { 0x1000 } else { 0x0000 }
+        if bit!(self.0, 3) {
+            0x1000
+        } else {
+            0x0000
+        }
     }
 
     pub fn background_pattern_table_address(&self) -> u16 {
-        if bit!(self.0, 4) { 0x1000 } else { 0x0000 }
+        if bit!(self.0, 4) {
+            0x1000
+        } else {
+            0x0000
+        }
     }
 
     pub fn sprite_size(&self) -> usize {
-        if bit!(self.0, 5) { 16 } else { 8 }
+        if bit!(self.0, 5) {
+            16
+        } else {
+            8
+        }
     }
 
     pub fn is_primary(&self) -> bool {
@@ -55,7 +72,7 @@ impl Deref for PpuControl {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PpuMask(u8);
 
 impl PpuMask {
@@ -124,7 +141,7 @@ impl Deref for PpuMask {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PpuStatus {
     val: u8,
     last_write: u8,

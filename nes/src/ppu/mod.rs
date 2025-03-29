@@ -5,17 +5,16 @@ mod shifters;
 mod sprite;
 mod vram;
 
-use crate::mapper::Mapper;
+use crate::frame_buffer::Frame;
+use crate::mapper::ChrMem;
 use crate::mem::Mem;
+use log::warn;
 use oam::Oam;
+use registers::Vtwx;
+pub use registers::{PpuControl, PpuMask, PpuStatus};
 pub use rgb::Rgb;
-use getset::{CopyGetters, Getters};
-use log::{debug, warn};
-use registers::{PpuControl, PpuMask, PpuStatus, Vtwx};
 use shifters::PatternShifter;
 use sprite::{SpritePriority, SpriteShift};
-use std::cell::RefCell;
-use std::rc::Rc;
 use vram::Vram;
 
 #[derive(Default)]
@@ -56,7 +55,6 @@ impl PpuPosition {
             if is_last_scanline {
                 self.scanline = 0;
                 self.frame += 1;
-                debug!("Frame {}", self.frame);
             } else {
                 self.scanline += 1;
             }
@@ -76,109 +74,111 @@ macro_rules! is_any {
 }
 
 fn nt_cycle(px: u16) -> bool {
-    is_any!(px, [
-            1,   9,   17,  25,  33,  41,  49,  57,  65,  73,  81,
-            89,  97,  105, 113, 121, 129, 137, 145, 153, 161, 169,
-            177, 185, 193, 201, 209, 217, 225, 233, 241, 321, 329,
-    ])
+    is_any!(
+        px,
+        [
+            1, 9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, 129, 137, 145, 153,
+            161, 169, 177, 185, 193, 201, 209, 217, 225, 233, 241, 321, 329,
+        ]
+    )
 }
 
 fn at_cycle(px: u16) -> bool {
-    is_any!(px, [
-            3,   11,  19,  27,  35,  43,  51,  59,  67,  75,  83,
-            91,  99,  107, 115, 123, 131, 139, 147, 155, 163, 171,
-            179, 187, 195, 203, 211, 219, 227, 235, 243, 323, 331,
-    ])
+    is_any!(
+        px,
+        [
+            3, 11, 19, 27, 35, 43, 51, 59, 67, 75, 83, 91, 99, 107, 115, 123, 131, 139, 147, 155,
+            163, 171, 179, 187, 195, 203, 211, 219, 227, 235, 243, 323, 331,
+        ]
+    )
 }
 
 fn pat_lo_cycle(px: u16) -> bool {
-    is_any!(px, [
-            5,   13,  21,  29,  37,  45,  53,  61,  69,  77,  85,
-            93,  101, 109, 117, 125, 133, 141, 149, 157, 165, 173,
-            181, 189, 197, 205, 213, 221, 229, 237, 245, 325, 333,
-    ])
+    is_any!(
+        px,
+        [
+            5, 13, 21, 29, 37, 45, 53, 61, 69, 77, 85, 93, 101, 109, 117, 125, 133, 141, 149, 157,
+            165, 173, 181, 189, 197, 205, 213, 221, 229, 237, 245, 325, 333,
+        ]
+    )
 }
 
 fn pat_hi_cycle(px: u16) -> bool {
-    is_any!(px, [
-            7,   15,  23,  31,  39,  47,  55,  63,  71,  79,  87,
-            95,  103, 111, 119, 127, 135, 143, 151, 159, 167, 175,
-            183, 191, 199, 207, 215, 223, 231, 239, 247, 327, 335,
-    ])
+    is_any!(
+        px,
+        [
+            7, 15, 23, 31, 39, 47, 55, 63, 71, 79, 87, 95, 103, 111, 119, 127, 135, 143, 151, 159,
+            167, 175, 183, 191, 199, 207, 215, 223, 231, 239, 247, 327, 335,
+        ]
+    )
 }
 
 fn garbage_nt_cycle(px: u16) -> bool {
-    is_any!(px, [ 337, 339 ])
+    is_any!(px, [337, 339])
 }
 
 fn inc_scrollh_cycle(px: u16) -> bool {
-    is_any!(px, [
-            8,   16,  24,  32,  40,  48,  56,  64,  72,  80,  88,
-            96,  104, 112, 120, 128, 136, 144, 152, 160, 168, 176,
-            184, 192, 200, 208, 216, 224, 232, 240, 248, 328, 336,
-    ])
+    is_any!(
+        px,
+        [
+            8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160,
+            168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 328, 336,
+        ]
+    )
 }
 
 fn pattern_latch_cycle(px: u16) -> bool {
-    is_any!(px, [
-            9,   17,  25,  33,  41,  49,  57,  65,  73,  81,  89,
-            97,  105, 113, 121, 129, 137, 145, 153, 161, 169, 177,
-            185, 193, 201, 209, 217, 225, 233, 241, 249, 257, 329,
-            337,
-    ])
+    is_any!(
+        px,
+        [
+            9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, 129, 137, 145, 153, 161,
+            169, 177, 185, 193, 201, 209, 217, 225, 233, 241, 249, 257, 329, 337,
+        ]
+    )
 }
 
 fn sprite_nt_cycle(px: u16) -> bool {
-    is_any!(px, [ 257, 265, 273, 281, 289, 297, 305, 313 ])
+    is_any!(px, [257, 265, 273, 281, 289, 297, 305, 313])
 }
 
 fn sprite_at_cycle(px: u16) -> bool {
-    is_any!(px, [ 259, 267, 275, 283, 291, 299, 307, 315 ])
+    is_any!(px, [259, 267, 275, 283, 291, 299, 307, 315])
 }
 
 fn sprite_lo_cycle(px: u16) -> bool {
-    is_any!(px, [ 261, 269, 277, 285, 293, 301, 309, 317 ])
+    is_any!(px, [261, 269, 277, 285, 293, 301, 309, 317])
 }
 
 fn sprite_hi_cycle(px: u16) -> bool {
-    is_any!(px, [ 263, 271, 279, 287, 295, 303, 311, 319 ])
+    is_any!(px, [263, 271, 279, 287, 295, 303, 311, 319])
 }
 
 fn sprite_attr_cycle(px: u16) -> bool {
-    is_any!(px, [ 259, 267, 275, 283, 291, 299, 307, 315 ])
+    is_any!(px, [259, 267, 275, 283, 291, 299, 307, 315])
 }
 
 fn sprite_x_cycle(px: u16) -> bool {
-    is_any!(px, [ 260, 268, 276, 284, 292, 300, 308, 316 ])
+    is_any!(px, [260, 268, 276, 284, 292, 300, 308, 316])
 }
 
-#[derive(CopyGetters, Getters)]
 pub struct Ppu {
+    pub ppuctrl: PpuControl,
+    pub ppumask: PpuMask,
+    pub ppustatus: PpuStatus,
+    pub vram: Vram,
+    pub oam: Oam,
+    pub screen: Frame,
+
     pos: PpuPosition,
-
-    #[getset(get = "pub")]
-    ppuctrl: PpuControl,
-    #[getset(get = "pub")]
-    ppumask: PpuMask,
-    #[getset(get = "pub")]
-    ppustatus: PpuStatus,
     ppu_data_buffer: u8,
-
-    #[getset(get = "pub")]
-    vram: Vram,
-    #[getset(get = "pub")]
-    oam: Oam,
     vtwx: Vtwx,
     shifter: PatternShifter,
     sprite_shifters: [SpriteShift; 8],
     immediate_nmi: bool,
-
-    #[getset(get = "pub")]
-    screen: Box<[u8; 256 * 240 * 3]>,
 }
 
 impl Ppu {
-    pub fn new(mapper: Rc<RefCell<Box<dyn Mapper>>>) -> Self {
+    pub fn new(mapper: ChrMem, frame_buffer: Frame) -> Self {
         Self {
             pos: PpuPosition::default(),
 
@@ -194,7 +194,7 @@ impl Ppu {
             sprite_shifters: [SpriteShift::default(); 8],
             immediate_nmi: false,
 
-            screen: Box::new([0; 256 * 240 * 3]),
+            screen: frame_buffer,
         }
     }
 
@@ -214,6 +214,14 @@ impl Ppu {
 
     pub fn frame(&self) -> u64 {
         self.pos.frame
+    }
+
+    pub fn scroll_x(&self) -> u8 {
+        self.vtwx.fine_x()
+    }
+
+    pub fn scroll_y(&self) -> u8 {
+        self.vtwx.fine_y() as u8
     }
 
     pub fn step(&mut self) -> PpuResult {
@@ -276,7 +284,7 @@ impl Ppu {
                 self.shifter.store_attribute(at_byte);
             } else if pat_lo_cycle(px) {
                 let lo = self.fetch_bg_lo();
-               self.shifter.load_pattern_lo(lo);
+                self.shifter.load_pattern_lo(lo);
             } else if pat_hi_cycle(px) {
                 let hi = self.fetch_bg_hi();
                 self.shifter.load_pattern_hi(hi);
@@ -334,88 +342,51 @@ impl Ppu {
 
     fn fetch_nametable(&mut self) -> u8 {
         let tile_addr = self.vtwx.tile_addr();
-
-        debug_assert!(
-            tile_addr >= 0x2000 && tile_addr < 0x23C0 ||
-            tile_addr >= 0x2400 && tile_addr < 0x27C0 ||
-            tile_addr >= 0x2800 && tile_addr < 0x2BC0 ||
-            tile_addr >= 0x2C00 && tile_addr < 0x2FC0,
-            "Invalid nametable address",
-        );
-
         self.vram.loadb(tile_addr)
     }
 
     fn fetch_attribute_table(&mut self) -> u8 {
         let attr_addr = self.vtwx.attr_addr();
         let quadrant = self.vtwx.attr_quadrant();
-
-        debug_assert!(
-            attr_addr >= 0x23C0 && attr_addr < 0x2400 ||
-            attr_addr >= 0x27C0 && attr_addr < 0x2800 ||
-            attr_addr >= 0x2BC0 && attr_addr < 0x2C00 ||
-            attr_addr >= 0x2FC0 && attr_addr < 0x3000,
-            "Invalid attribute table address",
-        );
-
         let attr_byte = self.vram.loadb(attr_addr);
 
-        let ret = match quadrant {
+        match quadrant {
             0x00 => (attr_byte & 0x03) >> 0, // top left
             0x01 => (attr_byte & 0x0C) >> 2, // top right
             0x02 => (attr_byte & 0x30) >> 4, // bottom left
             0x03 => (attr_byte & 0xC0) >> 6, // bottom right
-            _    => unreachable!(),
-        };
-
-        debug_assert!(ret < 0x04, "Too many bits set in attr address");
-
-        ret
+            _ => unreachable!(),
+        }
     }
 
     fn fetch_bg_lo(&mut self) -> u8 {
         let addr = self.pattern_addr(0);
-
-        debug_assert!(addr < 0x2000, "Invalid pattern table address");
-
         self.vram.loadb(addr)
     }
 
     fn fetch_bg_hi(&mut self) -> u8 {
         let addr = self.pattern_addr(8);
-
-        debug_assert!(addr < 0x2000, "Invalid pattern table address");
-
         self.vram.loadb(addr)
     }
 
     fn fetch_sprite_lo(&mut self, line: u16, px: u16) -> u8 {
         let sprite_idx = px / 8 - 32;
-
-        debug_assert!(sprite_idx < 8, "Sprite index out of bounds");
-
         let addr = self.sprite_pattern_addr(sprite_idx as usize, line, 0);
         self.vram.loadb(addr)
     }
 
     fn fetch_sprite_hi(&mut self, line: u16, px: u16) -> u8 {
         let sprite_idx = px / 8 - 32;
-
-        debug_assert!(sprite_idx < 8, "Sprite index out of bounds");
-
         let addr = self.sprite_pattern_addr(sprite_idx as usize, line, 8);
         self.vram.loadb(addr)
     }
 
     fn pattern_addr(&self, bit_plane: u16) -> u16 {
-        debug_assert!(bit_plane == 0 || bit_plane == 8, "Invalid bit plane");
-
         let fine_y = self.vtwx.fine_y();
-        debug_assert!(fine_y < 8, "Invalid fine Y");
-
         let nt_byte = self.shifter.nametable();
         let pattern_table_index = (nt_byte as u16) << 4;
         let pattern_table = self.ppuctrl.background_pattern_table_address();
+
         pattern_table | pattern_table_index | bit_plane | fine_y
     }
 
@@ -448,9 +419,8 @@ impl Ppu {
                 shifter.tick();
             }
 
-            return None
+            return None;
         }
-
 
         let shifters = &mut self.sprite_shifters;
         for (idx, shifter) in shifters.iter_mut().enumerate() {
@@ -482,18 +452,14 @@ impl Ppu {
 
         let fine_x = self.vtwx.fine_x();
         let pattern = self.shifter.pattern_val(fine_x);
-        debug_assert!(pattern < 4, "pattern value out of range");
 
         if pattern == 0 {
             None
         } else {
             let attr = self.shifter.attr_val(fine_x);
-            debug_assert!(attr < 4, "attribute value out of range");
-
             let palette_addr = 0x3F00 | (attr << 2) as u16 | pattern as u16;
-            debug_assert!(palette_addr >= 0x3F00 && palette_addr < 0x3F10);
-
             let color = self.vram.loadb(palette_addr);
+
             Some(Rgb::from_byte(color))
         }
     }
@@ -551,7 +517,7 @@ impl Mem for Ppu {
             0x05 => 0,
             0x06 => 0,
             0x07 => 0,
-            _    => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -570,7 +536,7 @@ impl Mem for Ppu {
                 self.ppustatus.set_vblank_started(false);
                 self.vtwx.reset_latch();
                 ret
-            },
+            }
             0x03 => {
                 warn!("Read from OAMADDR");
                 0
@@ -647,7 +613,7 @@ impl Mem for Ppu {
 
                 self.vram.storeb(addr, val);
                 self.vtwx.increment_addr(inc);
-            },
+            }
             _ => unreachable!(),
         }
     }

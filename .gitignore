@@ -1,4 +1,5 @@
 target/
+rom/
 **/*.rs.bk
 flamegraph.svg
 perf.data*

@@ -1,5 +1,5 @@
 mod cpu;
-// mod debug;
+mod debug;
 // mod log;
 mod nes;
 // mod nametable;
@@ -14,7 +14,7 @@ mod screenshot;
 mod view;
 
 pub use cpu::CpuView;
-// pub use debug::DebugView;
+pub use debug::DebugView;
 // pub use self::log::LogView;
 // pub use nametable::NametableView;
 // pub use oam::OamView;
@@ -24,5 +24,5 @@ pub use ppu::PpuView;
 // pub use arecord::AudioRecordView;
 // pub use record::RecordView;
 pub use self::nes::NesView;
-pub use view::View;
 pub use screenshot::ScreenshotView;
+pub use view::View;

@@ -1,86 +1,50 @@
 use crate::audio::Apu;
 use crate::cpu::Cpu;
 use crate::cpubus::CpuBus;
+use crate::frame_buffer::Frame;
 use crate::input::{Input, InputState};
 use crate::mapper::create_mapper;
 use crate::ppu::Ppu;
+use crate::ram::Ram;
 use crate::rom::Rom;
-use getset::{Getters};
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::rc::Rc;
+
+const WRAM_BYTE_SIZE: usize = 0x0800;
 
 pub struct StepResult {
     pub new_frame: bool,
 }
 
-#[derive(Getters)]
 pub struct Nes {
-    #[getset(get = "pub")]
-    apu: Rc<RefCell<Apu>>,
-    #[getset(get = "pub")]
-    cpu: Cpu<CpuBus>,
-    input: Rc<RefCell<Input>>,
-    #[getset(get = "pub")]
-    ppu: Rc<RefCell<Ppu>>,
+    pub cpu: Cpu<CpuBus>,
 }
 
 impl Nes {
     pub fn with_rom(rom: Rom) -> Self {
-        let rom = Box::new(rom);
-        let mapper = create_mapper(rom);
-        let mapper = Rc::new(RefCell::new(mapper));
-
-        let ppu = Ppu::new(mapper.clone());
-        let ppu = Rc::new(RefCell::new(ppu));
-
+        let (chr, prg) = create_mapper(rom);
+        let frame_buffer = Frame::new();
+        let ppu = Ppu::new(chr, frame_buffer);
         let apu = Apu::new();
-        let apu = Rc::new(RefCell::new(apu));
-
-        let input = Input::new();
-        let input = Rc::new(RefCell::new(input));
-        let cpu_bus = CpuBus::new(ppu.clone(), input.clone(), apu.clone(), mapper);
+        let ram = Ram::new(WRAM_BYTE_SIZE);
+        let input = Input::default();
+        let cpu_bus = CpuBus::new(ppu, input, apu, prg, ram);
 
         let mut cpu = Cpu::new(cpu_bus);
         cpu.reset();
 
-        Self { apu, cpu, input, ppu }
-    }
-
-    pub fn generate_sound<F>(
-        &mut self,
-        samples: usize,
-        audio_buffer: &mut VecDeque<f32>,
-        input: &InputState,
-        mut on_frame: F,
-    )
-    where F: FnMut(&[u8]) {
-        for _ in 0..samples {
-            let StepResult { new_frame } = self.step(input);
-
-            let apu = self.apu.borrow();
-            audio_buffer.push_back(apu.sample());
-
-            if new_frame {
-                let ppu = self.ppu.borrow();
-                on_frame(ppu.screen().as_ref());
-            }
-        }
+        Self { cpu }
     }
 
     /// Progress emulation by 1 CPU tick
     pub fn step(&mut self, input: &InputState) -> StepResult {
         self.cpu.step();
-        self.input.borrow_mut().set(input);
+        self.cpu.mem.input.set(input);
+        self.cpu.mem.apu.step();
+        self.cpu.mem.input.step();
 
-        let mut apu = self.apu.borrow_mut();
-        apu.step();
-
-        let mut ppu = self.ppu.borrow_mut();
         let mut new_frame = false;
 
         for _ in 0..3 {
-            let result = ppu.step();
+            let result = self.cpu.mem.ppu.step();
 
             if result.vblank_nmi {
                 self.cpu.nmi();

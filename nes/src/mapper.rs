@@ -1,38 +1,43 @@
-use crate::rom::Rom;
-
 mod nrom;
-mod uxrom;
+// mod uxrom;
 
-#[derive(PartialEq, Eq)]
-pub enum MapperResult {
-    Continue,
-    // Irq,
+use crate::{rom::Rom, Mem};
+use nrom::nrom;
+
+pub struct PrgMem(pub Box<dyn Mem + Send>);
+
+impl AsRef<dyn Mem + Send> for PrgMem {
+    fn as_ref(&self) -> &(dyn Mem + Send + 'static) {
+        self.0.as_ref()
+    }
 }
 
-pub trait Mapper {
-    /// Load a byte of memory from PRG ROM
-    fn prg_loadb(&mut self, addr: u16) -> u8;
-
-    /// Write a byte of memory to PRG ROM
-    fn prg_storeb(&mut self, addr: u16, val: u8);
-
-    /// Load a byte of memory from CHR memory
-    fn chr_loadb(&mut self, addr: u16) -> u8;
-
-    /// Debugging only. Read a byte from CHR ROM without making any changes
-    fn chr_peekb(&self, addr: u16) -> u8;
-
-    /// Store a byte of memory to CHR memory
-    fn chr_storeb(&mut self, addr: u16, val: u8);
-
-    fn next_scanline(&mut self) -> MapperResult;
+impl AsMut<dyn Mem + Send> for PrgMem {
+    fn as_mut(&mut self) -> &mut (dyn Mem + Send + 'static) {
+        self.0.as_mut()
+    }
 }
+
+pub struct ChrMem(pub Box<dyn Mem + Send>);
+
+impl AsRef<dyn Mem + Send> for ChrMem {
+    fn as_ref(&self) -> &(dyn Mem + Send + 'static) {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<dyn Mem + Send> for ChrMem {
+    fn as_mut(&mut self) -> &mut (dyn Mem + Send + 'static) {
+        self.0.as_mut()
+    }
+}
+
+type SplitRom = (ChrMem, PrgMem);
 
 /// Given a ROM, create a mapper that can read & write data with it
-pub fn create_mapper(rom: Box<Rom>) -> Box<dyn Mapper> {
+pub fn create_mapper(rom: Rom) -> SplitRom {
     match rom.header.ines_mapper() {
-        0 => Box::new(nrom::Nrom::new(rom)),
-        2 => Box::new(uxrom::Uxrom::new(rom)),
+        0 => nrom(rom),
         x => panic!("Unsupported mapper {}", x),
     }
 }

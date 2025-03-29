@@ -1,11 +1,9 @@
-use getset::Setters;
-
 pub enum SpritePriority {
     AboveBackground,
     BelowBackground,
 }
 
-#[derive(Clone, Copy, Debug, Default, Setters)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SpriteShift {
     counter: u8,
     latch: u8,

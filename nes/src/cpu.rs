@@ -1,6 +1,5 @@
-use bitflags::bitflags;
 use crate::mem::Mem;
-use getset::{CopyGetters, Getters};
+use bitflags::bitflags;
 
 /// The size (in bytes) of one page in memory.
 const PAGE_SIZE: u16 = 0x0100;
@@ -8,7 +7,6 @@ const PAGE_SIZE: u16 = 0x0100;
 /// The memory page that the stack uses. Under normal operating conditions the
 /// stack pointer is always between 0x0100 and 0x01FF.
 const STACK_BASE: u16 = 0x0100;
-
 
 /// When an NMI occurs, the program counter is updated to the value stored in
 /// this memory address.
@@ -65,7 +63,7 @@ enum Address {
 }
 
 bitflags! {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
     pub struct Flags: u8 {
         /// The carry flag is somewhat overloaded in meaning, but it typically means
         /// that during the previous operation the high bit of the operand was set and
@@ -106,50 +104,42 @@ bitflags! {
     }
 }
 
-#[derive(CopyGetters, Getters)]
-pub struct Cpu<M: Mem> {
+pub struct Cpu<M: Mem + Send> {
     /// The number of CPU cycles that have elapsed since power on
-    #[getset(get_copy = "pub")]
-    cy: u64,
+    pub cy: u64,
 
     busy: u8,
 
     /// The accumulator register
-    #[getset(get_copy = "pub")]
-    a: u8,
+    pub a: u8,
 
     /// The X register
-    #[getset(get_copy = "pub")]
-    x: u8,
+    pub x: u8,
 
     /// The y register
-    #[getset(get_copy = "pub")]
-    y: u8,
+    pub y: u8,
 
     /// The stack pointer. This contains the low byte of the stack address. The
     /// hight byte is always 0x01, and the stack grows "up", meaning that an
     /// empty stack pointer points to 0x01FF and a full stack points to 0x0100.
-    #[getset(get_copy = "pub")]
-    s: u8,
+    pub s: u8,
 
     /// This byte holds all of the CPU's status flags. It's useful to represent
     /// them as a byte rather than a bunch of booleans since some operations
     /// read/write them to/from the stack as a single byte.
-    #[getset(get_copy = "pub")]
-    flags: Flags,
+    pub flags: Flags,
 
     /// The program counter points to the next piece of data for the CPU to
     /// evaluate. The 6502 initializes the PC by setting it to the word stored
     /// in memory at 0xFFFC and 0xFFFD (the reset vector).
-    #[getset(get_copy = "pub")]
-    pc: u16,
+    pub pc: u16,
 
     /// All addressable space that the CPU can access. This includes RAM, the
     /// game pak, the PPU, and so on.
-    mem: M,
+    pub mem: M,
 }
 
-impl<M: Mem> Cpu<M> {
+impl<M: Mem + Send> Cpu<M> {
     /// Creates a new CPU with the given addressable components. At boot time
     /// the IRQ disable flag will be set, and the state of other registers and
     /// flags is left as undefined.
@@ -261,94 +251,268 @@ impl<M: Mem> Cpu<M> {
 
         let op = self.loadb_bump_pc();
 
-        ops!(self, op, [
-            (0x00, brk, imp, 7, false), (0x01, ora, izx, 6, false), (0x02, kil, imp, 2, false),
-            (0x03, slo, izx, 8, false), (0x04, nop, zp0, 3, false), (0x05, ora, zp0, 3, false),
-            (0x06, asl, zp0, 5, false), (0x07, slo, zp0, 5, false), (0x08, php, imp, 3, false),
-            (0x09, ora, imm, 2, false), (0x0A, asl, acc, 2, false), (0x0B, anc, imm, 2, false),
-            (0x0C, nop, abs, 4, false), (0x0D, ora, abs, 4, false), (0x0E, asl, abs, 6, false),
-            (0x0F, slo, abs, 6, false), (0x10, bpl, rel, 2, true ), (0x11, ora, izy, 5, true ),
-            (0x12, kil, imp, 2, false), (0x13, slo, izy, 8, false), (0x14, nop, zpx, 4, false),
-            (0x15, ora, zpx, 4, false), (0x16, asl, zpx, 6, false), (0x17, slo, zpx, 6, false),
-            (0x18, clc, imp, 2, false), (0x19, ora, aby, 4, true ), (0x1A, nop, imp, 2, false),
-            (0x1B, slo, aby, 7, false), (0x1C, nop, abx, 4, true ), (0x1D, ora, abx, 4, true ),
-            (0x1E, asl, abx, 7, false), (0x1F, slo, abx, 7, false), (0x20, jsr, abs, 6, false),
-            (0x21, and, izx, 6, false), (0x22, kil, imp, 2, false), (0x23, rla, izx, 8, false),
-            (0x24, bit, zp0, 3, false), (0x25, and, zp0, 3, false), (0x26, rol, zp0, 5, false),
-            (0x27, rla, zp0, 5, false), (0x28, plp, imp, 4, false), (0x29, and, imm, 2, false),
-            (0x2A, rol, acc, 2, false), (0x2B, anc, imm, 2, false), (0x2C, bit, abs, 4, false),
-            (0x2D, and, abs, 4, false), (0x2E, rol, abs, 6, false), (0x2F, rla, abs, 6, false),
-            (0x30, bmi, rel, 2, true ), (0x31, and, izy, 5, true ), (0x32, kil, imp, 2, false),
-            (0x33, rla, izy, 8, false), (0x34, nop, zpx, 4, false), (0x35, and, zpx, 4, false),
-            (0x36, rol, zpx, 6, false), (0x37, rla, zpx, 6, false), (0x38, sec, imp, 2, false),
-            (0x39, and, aby, 4, true ), (0x3A, nop, imp, 2, false), (0x3B, rla, aby, 7, false),
-            (0x3C, nop, abx, 4, true ), (0x3D, and, abx, 4, true ), (0x3E, rol, abx, 7, false),
-            (0x3F, rla, abx, 7, false), (0x40, rti, imp, 6, false), (0x41, eor, izx, 6, false),
-            (0x42, kil, imp, 2, false), (0x43, sre, izx, 8, false), (0x44, nop, zp0, 3, false),
-            (0x45, eor, zp0, 3, false), (0x46, lsr, zp0, 5, false), (0x47, sre, zp0, 5, false),
-            (0x48, pha, imp, 3, false), (0x49, eor, imm, 2, false), (0x4A, lsr, acc, 2, false),
-            (0x4B, alr, imm, 2, false), (0x4C, jmp, abs, 3, false), (0x4D, eor, abs, 4, false),
-            (0x4E, lsr, abs, 6, false), (0x4F, sre, abs, 6, false), (0x50, bvc, rel, 2, true ),
-            (0x51, eor, izy, 5, true ), (0x52, kil, imp, 2, false), (0x53, sre, izy, 8, false),
-            (0x54, nop, zpx, 4, false), (0x55, eor, zpx, 4, false), (0x56, lsr, zpx, 6, false),
-            (0x57, sre, zpx, 6, false), (0x58, cli, imp, 2, false), (0x59, eor, aby, 4, true ),
-            (0x5A, nop, imp, 2, false), (0x5B, sre, aby, 7, false), (0x5C, nop, abx, 4, true ),
-            (0x5D, eor, abx, 4, true ), (0x5E, lsr, abx, 7, false), (0x5F, sre, abx, 7, false),
-            (0x60, rts, imp, 6, false), (0x61, adc, izx, 6, false), (0x62, kil, imp, 2, false),
-            (0x63, rra, izx, 8, false), (0x64, nop, zp0, 3, false), (0x65, adc, zp0, 3, false),
-            (0x66, ror, zp0, 5, false), (0x67, rra, zp0, 5, false), (0x68, pla, imp, 4, false),
-            (0x69, adc, imm, 2, false), (0x6A, ror, acc, 2, false), (0x6B, arr, imm, 2, false),
-            (0x6C, jmp, ind, 5, false), (0x6D, adc, abs, 4, false), (0x6E, ror, abs, 6, false),
-            (0x6F, rra, abs, 6, false), (0x70, bvs, rel, 2, true ), (0x71, adc, izy, 5, true ),
-            (0x72, kil, imp, 2, false), (0x73, rra, izy, 8, false), (0x74, nop, zpx, 4, false),
-            (0x75, adc, zpx, 4, false), (0x76, ror, zpx, 6, false), (0x77, rra, zpx, 6, false),
-            (0x78, sei, imp, 2, false), (0x79, adc, aby, 4, true ), (0x7A, nop, imp, 2, false),
-            (0x7B, rra, aby, 7, false), (0x7C, nop, abx, 4, true ), (0x7D, adc, abx, 4, true ),
-            (0x7E, ror, abx, 7, false), (0x7F, rra, abx, 7, false), (0x80, nop, imm, 2, false),
-            (0x81, sta, izx, 6, false), (0x82, nop, imm, 2, false), (0x83, sax, izx, 6, false),
-            (0x84, sty, zp0, 3, false), (0x85, sta, zp0, 3, false), (0x86, stx, zp0, 3, false),
-            (0x87, sax, zp0, 3, false), (0x88, dey, imp, 2, false), (0x89, nop, imm, 2, false),
-            (0x8A, txa, imp, 2, false), (0x8B, xaa, imm, 2, false), (0x8C, sty, abs, 4, false),
-            (0x8D, sta, abs, 4, false), (0x8E, stx, abs, 4, false), (0x8F, sax, abs, 4, false),
-            (0x90, bcc, rel, 2, true ), (0x91, sta, izy, 6, false), (0x92, kil, imp, 2, false),
-            (0x93, ahx, izy, 6, false), (0x94, sty, zpx, 4, false), (0x95, sta, zpx, 4, false),
-            (0x96, stx, zpy, 4, false), (0x97, sax, zpy, 4, false), (0x98, tya, imp, 2, false),
-            (0x99, sta, aby, 5, false), (0x9A, txs, imp, 2, false), (0x9B, tas, aby, 5, false),
-            (0x9C, shy, abx, 5, false), (0x9D, sta, abx, 5, false), (0x9E, shx, aby, 5, false),
-            (0x9F, ahx, aby, 5, false), (0xA0, ldy, imm, 2, false), (0xA1, lda, izx, 6, false),
-            (0xA2, ldx, imm, 2, false), (0xA3, lax, izx, 6, false), (0xA4, ldy, zp0, 3, false),
-            (0xA5, lda, zp0, 3, false), (0xA6, ldx, zp0, 3, false), (0xA7, lax, zp0, 3, false),
-            (0xA8, tay, imp, 2, false), (0xA9, lda, imm, 2, false), (0xAA, tax, imp, 2, false),
-            (0xAB, lax, imm, 2, false), (0xAC, ldy, abs, 4, false), (0xAD, lda, abs, 4, false),
-            (0xAE, ldx, abs, 4, false), (0xAF, lax, abs, 4, false), (0xB0, bcs, rel, 2, true ),
-            (0xB1, lda, izy, 5, true ), (0xB2, kil, imp, 2, false), (0xB3, lax, izy, 5, true ),
-            (0xB4, ldy, zpx, 4, false), (0xB5, lda, zpx, 4, false), (0xB6, ldx, zpy, 4, false),
-            (0xB7, lax, zpy, 4, false), (0xB8, clv, imp, 2, false), (0xB9, lda, aby, 4, true ),
-            (0xBA, tsx, imp, 2, false), (0xBB, las, aby, 4, true ), (0xBC, ldy, abx, 4, true ),
-            (0xBD, lda, abx, 4, true ), (0xBE, ldx, aby, 4, true ), (0xBF, lax, aby, 4, true ),
-            (0xC0, cpy, imm, 2, false), (0xC1, cmp, izx, 6, false), (0xC2, nop, imm, 2, false),
-            (0xC3, dcp, izx, 8, false), (0xC4, cpy, zp0, 3, false), (0xC5, cmp, zp0, 3, false),
-            (0xC6, dec, zp0, 5, false), (0xC7, dcp, zp0, 5, false), (0xC8, iny, imp, 2, false),
-            (0xC9, cmp, imm, 2, false), (0xCA, dex, imp, 2, false), (0xCB, axs, imm, 2, false),
-            (0xCC, cpy, abs, 4, false), (0xCD, cmp, abs, 4, false), (0xCE, dec, abs, 6, false),
-            (0xCF, dcp, abs, 6, false), (0xD0, bne, rel, 2, true ), (0xD1, cmp, izy, 5, true ),
-            (0xD2, kil, imp, 2, false), (0xD3, dcp, izy, 8, false), (0xD4, nop, zpx, 4, false),
-            (0xD5, cmp, zpx, 4, false), (0xD6, dec, zpx, 6, false), (0xD7, dcp, zpx, 6, false),
-            (0xD8, cld, imp, 2, false), (0xD9, cmp, aby, 4, true ), (0xDA, nop, imp, 2, false),
-            (0xDB, dcp, aby, 7, false), (0xDC, nop, abx, 4, true ), (0xDD, cmp, abx, 4, true ),
-            (0xDE, dec, abx, 7, false), (0xDF, dcp, abx, 7, false), (0xE0, cpx, imm, 2, false),
-            (0xE1, sbc, izx, 6, false), (0xE2, nop, imm, 2, false), (0xE3, isc, izx, 8, false),
-            (0xE4, cpx, zp0, 3, false), (0xE5, sbc, zp0, 3, false), (0xE6, inc, zp0, 5, false),
-            (0xE7, isc, zp0, 5, false), (0xE8, inx, imp, 2, false), (0xE9, sbc, imm, 2, false),
-            (0xEA, nop, imp, 2, false), (0xEB, sbc, imm, 2, false), (0xEC, cpx, abs, 4, false),
-            (0xED, sbc, abs, 4, false), (0xEE, inc, abs, 6, false), (0xEF, isc, abs, 6, false),
-            (0xF0, beq, rel, 2, true ), (0xF1, sbc, izy, 5, true ), (0xF2, kil, imp, 2, false),
-            (0xF3, isc, izy, 8, false), (0xF4, nop, zpx, 4, false), (0xF5, sbc, zpx, 4, false),
-            (0xF6, inc, zpx, 6, false), (0xF7, isc, zpx, 6, false), (0xF8, sed, imp, 2, false),
-            (0xF9, sbc, aby, 4, true ), (0xFA, nop, imp, 2, false), (0xFB, isc, aby, 7, false),
-            (0xFC, nop, abx, 4, true ), (0xFD, sbc, abx, 4, true ), (0xFE, inc, abx, 7, false),
-            (0xFF, isc, abx, 7, false),
-        ]);
+        ops!(
+            self,
+            op,
+            [
+                (0x00, brk, imp, 7, false),
+                (0x01, ora, izx, 6, false),
+                (0x02, kil, imp, 2, false),
+                (0x03, slo, izx, 8, false),
+                (0x04, nop, zp0, 3, false),
+                (0x05, ora, zp0, 3, false),
+                (0x06, asl, zp0, 5, false),
+                (0x07, slo, zp0, 5, false),
+                (0x08, php, imp, 3, false),
+                (0x09, ora, imm, 2, false),
+                (0x0A, asl, acc, 2, false),
+                (0x0B, anc, imm, 2, false),
+                (0x0C, nop, abs, 4, false),
+                (0x0D, ora, abs, 4, false),
+                (0x0E, asl, abs, 6, false),
+                (0x0F, slo, abs, 6, false),
+                (0x10, bpl, rel, 2, true),
+                (0x11, ora, izy, 5, true),
+                (0x12, kil, imp, 2, false),
+                (0x13, slo, izy, 8, false),
+                (0x14, nop, zpx, 4, false),
+                (0x15, ora, zpx, 4, false),
+                (0x16, asl, zpx, 6, false),
+                (0x17, slo, zpx, 6, false),
+                (0x18, clc, imp, 2, false),
+                (0x19, ora, aby, 4, true),
+                (0x1A, nop, imp, 2, false),
+                (0x1B, slo, aby, 7, false),
+                (0x1C, nop, abx, 4, true),
+                (0x1D, ora, abx, 4, true),
+                (0x1E, asl, abx, 7, false),
+                (0x1F, slo, abx, 7, false),
+                (0x20, jsr, abs, 6, false),
+                (0x21, and, izx, 6, false),
+                (0x22, kil, imp, 2, false),
+                (0x23, rla, izx, 8, false),
+                (0x24, bit, zp0, 3, false),
+                (0x25, and, zp0, 3, false),
+                (0x26, rol, zp0, 5, false),
+                (0x27, rla, zp0, 5, false),
+                (0x28, plp, imp, 4, false),
+                (0x29, and, imm, 2, false),
+                (0x2A, rol, acc, 2, false),
+                (0x2B, anc, imm, 2, false),
+                (0x2C, bit, abs, 4, false),
+                (0x2D, and, abs, 4, false),
+                (0x2E, rol, abs, 6, false),
+                (0x2F, rla, abs, 6, false),
+                (0x30, bmi, rel, 2, true),
+                (0x31, and, izy, 5, true),
+                (0x32, kil, imp, 2, false),
+                (0x33, rla, izy, 8, false),
+                (0x34, nop, zpx, 4, false),
+                (0x35, and, zpx, 4, false),
+                (0x36, rol, zpx, 6, false),
+                (0x37, rla, zpx, 6, false),
+                (0x38, sec, imp, 2, false),
+                (0x39, and, aby, 4, true),
+                (0x3A, nop, imp, 2, false),
+                (0x3B, rla, aby, 7, false),
+                (0x3C, nop, abx, 4, true),
+                (0x3D, and, abx, 4, true),
+                (0x3E, rol, abx, 7, false),
+                (0x3F, rla, abx, 7, false),
+                (0x40, rti, imp, 6, false),
+                (0x41, eor, izx, 6, false),
+                (0x42, kil, imp, 2, false),
+                (0x43, sre, izx, 8, false),
+                (0x44, nop, zp0, 3, false),
+                (0x45, eor, zp0, 3, false),
+                (0x46, lsr, zp0, 5, false),
+                (0x47, sre, zp0, 5, false),
+                (0x48, pha, imp, 3, false),
+                (0x49, eor, imm, 2, false),
+                (0x4A, lsr, acc, 2, false),
+                (0x4B, alr, imm, 2, false),
+                (0x4C, jmp, abs, 3, false),
+                (0x4D, eor, abs, 4, false),
+                (0x4E, lsr, abs, 6, false),
+                (0x4F, sre, abs, 6, false),
+                (0x50, bvc, rel, 2, true),
+                (0x51, eor, izy, 5, true),
+                (0x52, kil, imp, 2, false),
+                (0x53, sre, izy, 8, false),
+                (0x54, nop, zpx, 4, false),
+                (0x55, eor, zpx, 4, false),
+                (0x56, lsr, zpx, 6, false),
+                (0x57, sre, zpx, 6, false),
+                (0x58, cli, imp, 2, false),
+                (0x59, eor, aby, 4, true),
+                (0x5A, nop, imp, 2, false),
+                (0x5B, sre, aby, 7, false),
+                (0x5C, nop, abx, 4, true),
+                (0x5D, eor, abx, 4, true),
+                (0x5E, lsr, abx, 7, false),
+                (0x5F, sre, abx, 7, false),
+                (0x60, rts, imp, 6, false),
+                (0x61, adc, izx, 6, false),
+                (0x62, kil, imp, 2, false),
+                (0x63, rra, izx, 8, false),
+                (0x64, nop, zp0, 3, false),
+                (0x65, adc, zp0, 3, false),
+                (0x66, ror, zp0, 5, false),
+                (0x67, rra, zp0, 5, false),
+                (0x68, pla, imp, 4, false),
+                (0x69, adc, imm, 2, false),
+                (0x6A, ror, acc, 2, false),
+                (0x6B, arr, imm, 2, false),
+                (0x6C, jmp, ind, 5, false),
+                (0x6D, adc, abs, 4, false),
+                (0x6E, ror, abs, 6, false),
+                (0x6F, rra, abs, 6, false),
+                (0x70, bvs, rel, 2, true),
+                (0x71, adc, izy, 5, true),
+                (0x72, kil, imp, 2, false),
+                (0x73, rra, izy, 8, false),
+                (0x74, nop, zpx, 4, false),
+                (0x75, adc, zpx, 4, false),
+                (0x76, ror, zpx, 6, false),
+                (0x77, rra, zpx, 6, false),
+                (0x78, sei, imp, 2, false),
+                (0x79, adc, aby, 4, true),
+                (0x7A, nop, imp, 2, false),
+                (0x7B, rra, aby, 7, false),
+                (0x7C, nop, abx, 4, true),
+                (0x7D, adc, abx, 4, true),
+                (0x7E, ror, abx, 7, false),
+                (0x7F, rra, abx, 7, false),
+                (0x80, nop, imm, 2, false),
+                (0x81, sta, izx, 6, false),
+                (0x82, nop, imm, 2, false),
+                (0x83, sax, izx, 6, false),
+                (0x84, sty, zp0, 3, false),
+                (0x85, sta, zp0, 3, false),
+                (0x86, stx, zp0, 3, false),
+                (0x87, sax, zp0, 3, false),
+                (0x88, dey, imp, 2, false),
+                (0x89, nop, imm, 2, false),
+                (0x8A, txa, imp, 2, false),
+                (0x8B, xaa, imm, 2, false),
+                (0x8C, sty, abs, 4, false),
+                (0x8D, sta, abs, 4, false),
+                (0x8E, stx, abs, 4, false),
+                (0x8F, sax, abs, 4, false),
+                (0x90, bcc, rel, 2, true),
+                (0x91, sta, izy, 6, false),
+                (0x92, kil, imp, 2, false),
+                (0x93, ahx, izy, 6, false),
+                (0x94, sty, zpx, 4, false),
+                (0x95, sta, zpx, 4, false),
+                (0x96, stx, zpy, 4, false),
+                (0x97, sax, zpy, 4, false),
+                (0x98, tya, imp, 2, false),
+                (0x99, sta, aby, 5, false),
+                (0x9A, txs, imp, 2, false),
+                (0x9B, tas, aby, 5, false),
+                (0x9C, shy, abx, 5, false),
+                (0x9D, sta, abx, 5, false),
+                (0x9E, shx, aby, 5, false),
+                (0x9F, ahx, aby, 5, false),
+                (0xA0, ldy, imm, 2, false),
+                (0xA1, lda, izx, 6, false),
+                (0xA2, ldx, imm, 2, false),
+                (0xA3, lax, izx, 6, false),
+                (0xA4, ldy, zp0, 3, false),
+                (0xA5, lda, zp0, 3, false),
+                (0xA6, ldx, zp0, 3, false),
+                (0xA7, lax, zp0, 3, false),
+                (0xA8, tay, imp, 2, false),
+                (0xA9, lda, imm, 2, false),
+                (0xAA, tax, imp, 2, false),
+                (0xAB, lax, imm, 2, false),
+                (0xAC, ldy, abs, 4, false),
+                (0xAD, lda, abs, 4, false),
+                (0xAE, ldx, abs, 4, false),
+                (0xAF, lax, abs, 4, false),
+                (0xB0, bcs, rel, 2, true),
+                (0xB1, lda, izy, 5, true),
+                (0xB2, kil, imp, 2, false),
+                (0xB3, lax, izy, 5, true),
+                (0xB4, ldy, zpx, 4, false),
+                (0xB5, lda, zpx, 4, false),
+                (0xB6, ldx, zpy, 4, false),
+                (0xB7, lax, zpy, 4, false),
+                (0xB8, clv, imp, 2, false),
+                (0xB9, lda, aby, 4, true),
+                (0xBA, tsx, imp, 2, false),
+                (0xBB, las, aby, 4, true),
+                (0xBC, ldy, abx, 4, true),
+                (0xBD, lda, abx, 4, true),
+                (0xBE, ldx, aby, 4, true),
+                (0xBF, lax, aby, 4, true),
+                (0xC0, cpy, imm, 2, false),
+                (0xC1, cmp, izx, 6, false),
+                (0xC2, nop, imm, 2, false),
+                (0xC3, dcp, izx, 8, false),
+                (0xC4, cpy, zp0, 3, false),
+                (0xC5, cmp, zp0, 3, false),
+                (0xC6, dec, zp0, 5, false),
+                (0xC7, dcp, zp0, 5, false),
+                (0xC8, iny, imp, 2, false),
+                (0xC9, cmp, imm, 2, false),
+                (0xCA, dex, imp, 2, false),
+                (0xCB, axs, imm, 2, false),
+                (0xCC, cpy, abs, 4, false),
+                (0xCD, cmp, abs, 4, false),
+                (0xCE, dec, abs, 6, false),
+                (0xCF, dcp, abs, 6, false),
+                (0xD0, bne, rel, 2, true),
+                (0xD1, cmp, izy, 5, true),
+                (0xD2, kil, imp, 2, false),
+                (0xD3, dcp, izy, 8, false),
+                (0xD4, nop, zpx, 4, false),
+                (0xD5, cmp, zpx, 4, false),
+                (0xD6, dec, zpx, 6, false),
+                (0xD7, dcp, zpx, 6, false),
+                (0xD8, cld, imp, 2, false),
+                (0xD9, cmp, aby, 4, true),
+                (0xDA, nop, imp, 2, false),
+                (0xDB, dcp, aby, 7, false),
+                (0xDC, nop, abx, 4, true),
+                (0xDD, cmp, abx, 4, true),
+                (0xDE, dec, abx, 7, false),
+                (0xDF, dcp, abx, 7, false),
+                (0xE0, cpx, imm, 2, false),
+                (0xE1, sbc, izx, 6, false),
+                (0xE2, nop, imm, 2, false),
+                (0xE3, isc, izx, 8, false),
+                (0xE4, cpx, zp0, 3, false),
+                (0xE5, sbc, zp0, 3, false),
+                (0xE6, inc, zp0, 5, false),
+                (0xE7, isc, zp0, 5, false),
+                (0xE8, inx, imp, 2, false),
+                (0xE9, sbc, imm, 2, false),
+                (0xEA, nop, imp, 2, false),
+                (0xEB, sbc, imm, 2, false),
+                (0xEC, cpx, abs, 4, false),
+                (0xED, sbc, abs, 4, false),
+                (0xEE, inc, abs, 6, false),
+                (0xEF, isc, abs, 6, false),
+                (0xF0, beq, rel, 2, true),
+                (0xF1, sbc, izy, 5, true),
+                (0xF2, kil, imp, 2, false),
+                (0xF3, isc, izy, 8, false),
+                (0xF4, nop, zpx, 4, false),
+                (0xF5, sbc, zpx, 4, false),
+                (0xF6, inc, zpx, 6, false),
+                (0xF7, isc, zpx, 6, false),
+                (0xF8, sed, imp, 2, false),
+                (0xF9, sbc, aby, 4, true),
+                (0xFA, nop, imp, 2, false),
+                (0xFB, isc, aby, 7, false),
+                (0xFC, nop, abx, 4, true),
+                (0xFD, sbc, abx, 4, true),
+                (0xFE, inc, abx, 7, false),
+                (0xFF, isc, abx, 7, false),
+            ]
+        );
     }
 
     // Addressing modes
@@ -367,7 +531,7 @@ impl<M: Mem> Cpu<M> {
     /// at $2092 (e.g. $2000 + $92).
     fn abx(&mut self, extra: bool) -> Address {
         let val = self.loadw_bump_pc();
-        let addr = val.wrapping_add(self.x as u16);
+        let addr = val.wrapping_add(self.x.into());
 
         // Use an extra cycle when crossing page boundaries
         let base_page = val & 0xFF00;
@@ -384,12 +548,12 @@ impl<M: Mem> Cpu<M> {
     /// bit address from the instruction.
     fn aby(&mut self, extra: bool) -> Address {
         let val = self.loadw_bump_pc();
-        let addr = val.wrapping_add(self.y as u16);
+        let addr = val.wrapping_add(self.y.into());
 
         // Use an extra cycle when crossing page boundaries
         let base_page = val & 0xFF00;
         let addr_page = addr & 0xFF00;
-        if extra && base_page !=  addr_page {
+        if extra && base_page != addr_page {
             self.cy += 1;
         }
 
@@ -405,7 +569,7 @@ impl<M: Mem> Cpu<M> {
 
     /// Immediate addressing allows the programmer to directly specify an 8 bit
     /// constant within the instruction. It is indicated by a '#' symbol
-    /// followed by an numeric expression.
+    /// followed by a numeric expression.
     fn imm(&mut self, _extra: bool) -> Address {
         let val = self.loadb_bump_pc();
         Address::Immediate(val)
@@ -442,7 +606,7 @@ impl<M: Mem> Cpu<M> {
     /// address.
     fn izx(&mut self, _extra: bool) -> Address {
         let val = self.loadb_bump_pc();
-        let addr = val.wrapping_add(self.x) as u16;
+        let addr: u16 = val.wrapping_add(self.x).into();
 
         if addr == 0x00FF {
             // Zero page access should wrap when reading from 0x00FF
@@ -1198,10 +1362,10 @@ impl<M: Mem> Cpu<M> {
     fn addr_loadb(&mut self, addr: &Address) -> u8 {
         match addr {
             Address::Absolute(addr) => self.loadb(*addr),
-            Address::Accumulator    => self.a,
+            Address::Accumulator => self.a,
             Address::Immediate(val) => *val,
-            Address::Indirect(_)    => unreachable!("Can't load from indirect address"),
-            Address::Implied        => unreachable!("Can't load from implied address"),
+            Address::Indirect(_) => unreachable!("Can't load from indirect address"),
+            Address::Implied => unreachable!("Can't load from implied address"),
         }
     }
 
@@ -1267,7 +1431,7 @@ impl<M: Mem> Cpu<M> {
     }
 }
 
-impl<M: Mem> Mem for Cpu<M> {
+impl<M: Mem + Send> Mem for Cpu<M> {
     fn peekb(&self, addr: u16) -> u8 {
         self.mem.peekb(addr)
     }
@@ -1291,9 +1455,13 @@ mod tests {
     use matches::assert_matches;
 
     macro_rules! cpu {
-        ( ) => { cpu!(0x00) };
+        ( ) => {
+            cpu!(0x00)
+        };
 
-        ( $flags:expr ) => { cpu!($flags, vec![]) };
+        ( $flags:expr ) => {
+            cpu!($flags, vec![])
+        };
 
         ( $flags:expr, $mem:expr ) => {{
             let mut cpu = Cpu::new(VecMem { mem: $mem });
@@ -1357,7 +1525,10 @@ mod tests {
             let mut cpu = cpu!(Flags::ZERO.bits() | Flags::CARRY.bits(), vec![0; 0x10000]);
             cpu.s = 0xFF;
             cpu.nmi();
-            assert_eq!(cpu.mem.mem[0x01FD], Flags::ZERO.bits() | Flags::CARRY.bits());
+            assert_eq!(
+                cpu.mem.mem[0x01FD],
+                Flags::ZERO.bits() | Flags::CARRY.bits()
+            );
         }
 
         #[test]
@@ -1406,7 +1577,10 @@ mod tests {
         fn irq_pushes_flags_to_stack() {
             let mut cpu = cpu!(Flags::ZERO.bits() | Flags::CARRY.bits(), vec![0; 0x10000]);
             cpu.irq();
-            assert_eq!(cpu.mem.mem[0x01FD], Flags::ZERO.bits() | Flags::CARRY.bits());
+            assert_eq!(
+                cpu.mem.mem[0x01FD],
+                Flags::ZERO.bits() | Flags::CARRY.bits()
+            );
         }
 
         #[test]
@@ -2007,7 +2181,10 @@ mod tests {
         fn brk_sets_break_bit() {
             let mut cpu = cpu!(0x00, vec![0; 0x10000]);
             cpu.brk(Address::Implied);
-            assert_eq!(cpu.mem.mem[0x01FD] & Flags::BREAK.bits(), Flags::BREAK.bits());
+            assert_eq!(
+                cpu.mem.mem[0x01FD] & Flags::BREAK.bits(),
+                Flags::BREAK.bits()
+            );
         }
 
         #[test]

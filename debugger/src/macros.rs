@@ -1,21 +1,15 @@
-// pub fn press(key: Key, event: &WindowEvent) -> bool {
-//     let mods = Modifiers::empty();
-//     match *event {
-//         WindowEvent::Key(k, _, Action::Press, m) if k == key && m == mods=> true,
-//         _ => false,
-//     }
-// }
+macro_rules! shortcut {
+    ($key:ident) => {
+        ::egui::KeyboardShortcut {
+            modifiers: ::egui::Modifiers::NONE,
+            logical_key: ::egui::Key::$key,
+        }
+    };
 
-// pub fn press_alt(key: Key, event: &WindowEvent) -> bool {
-//     match *event {
-//         WindowEvent::Key(k, _, Action::Press, Modifiers::Alt) if k == key => true,
-//         _ => false,
-//     }
-// }
-
-// pub fn press_ctrl(key: Key, event: &WindowEvent) -> bool {
-//     match *event {
-//         WindowEvent::Key(k, _, Action::Press, Modifiers::Control) if k == key => true,
-//         _ => false,
-//     }
-// }
+    ($mod:ident, $key:ident) => {
+        ::egui::KeyboardShortcut {
+            modifiers: ::egui::Modifiers::$mod,
+            logical_key: ::egui::Key::$key,
+        }
+    };
+}

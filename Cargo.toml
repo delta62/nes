@@ -1,11 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = [
-    "debugger",
-    "nes",
-    "pcm"
-]
+members = ["debugger", "nes"]
 
 #[profile.release]
 # lto = true

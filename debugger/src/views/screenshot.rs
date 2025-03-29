@@ -1,24 +1,23 @@
-use chrono::Local;
-use egui::{Button, Ui, KeyboardShortcut, os::OperatingSystem, ModifierNames};
-use nes::FrameBuffer;
 use super::View;
+use chrono::Local;
+use egui::{os::OperatingSystem, Button, Context, KeyboardShortcut, ModifierNames, Ui};
+use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::fs::File;
 
 const SHORTCUT: KeyboardShortcut = KeyboardShortcut {
     modifiers: egui::Modifiers::CTRL,
-    key: egui::Key::P,
+    logical_key: egui::Key::P,
 };
 
 pub struct ScreenshotView {
-    last_frame: [ u8; 256 * 240 * 3 ], // 0x2D000 ], // 256 * 240 * 3
+    last_frame: [u8; 256 * 240 * 3], // 0x2D000 ], // 256 * 240 * 3
 }
 
 impl ScreenshotView {
     pub fn new() -> Self {
         Self {
-            last_frame: [ 0; 0x2D000 ],
+            last_frame: [0; 0x2D000],
         }
     }
 }
@@ -41,19 +40,17 @@ impl ScreenshotView {
 }
 
 impl View for ScreenshotView {
-    fn custom_menu(&mut self, ui: &mut Ui) {
+    fn custom_menu(&mut self, ui: &mut Ui, _ctx: &Context) {
         ui.menu_button("Screenshot", |ui| {
-            let button = Button::new("Screenshot")
-                .shortcut_text(SHORTCUT.format(&ModifierNames::NAMES, OperatingSystem::from_target_os() == OperatingSystem::Mac));
+            let button = Button::new("Screenshot").shortcut_text(SHORTCUT.format(
+                &ModifierNames::NAMES,
+                OperatingSystem::from_target_os() == OperatingSystem::Mac,
+            ));
 
             if ui.add(button).clicked() {
                 self.screenshot();
             }
         });
-    }
-
-    fn on_frame(&mut self, framebuffer: &mut FrameBuffer) {
-        self.last_frame.copy_from_slice(framebuffer.frame());
     }
 
     fn input(&mut self, input_state: &mut egui::InputState) {
