@@ -1,9 +1,8 @@
 use super::View;
 use chrono::Local;
 use egui::{os::OperatingSystem, Button, Context, KeyboardShortcut, ModifierNames, Ui};
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
+use nes::{ControlMessage, Frame};
+use std::{fs::File, io::BufWriter, path::Path, sync::mpsc::Sender};
 
 const SHORTCUT: KeyboardShortcut = KeyboardShortcut {
     modifiers: egui::Modifiers::CTRL,
@@ -11,19 +10,18 @@ const SHORTCUT: KeyboardShortcut = KeyboardShortcut {
 };
 
 pub struct ScreenshotView {
-    last_frame: [u8; 256 * 240 * 3], // 0x2D000 ], // 256 * 240 * 3
+    shot_pending: bool,
 }
 
 impl ScreenshotView {
     pub fn new() -> Self {
-        Self {
-            last_frame: [0; 0x2D000],
-        }
+        let shot_pending = false;
+        Self { shot_pending }
     }
 }
 
 impl ScreenshotView {
-    fn screenshot(&self) {
+    fn screenshot(&self, frame: &Frame) {
         let now = Local::now();
         let path = now.format("screenshot-%Y-%m-%d-%H-%M-%S.png").to_string();
         let path = Path::new(&path);
@@ -35,7 +33,7 @@ impl ScreenshotView {
         encoder.set_depth(png::BitDepth::Eight);
 
         let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(&self.last_frame).unwrap();
+        writer.write_image_data(frame.as_ref()).unwrap();
     }
 }
 
@@ -48,14 +46,21 @@ impl View for ScreenshotView {
             ));
 
             if ui.add(button).clicked() {
-                self.screenshot();
+                self.shot_pending = true;
             }
         });
     }
 
+    fn on_frame(&mut self, frame: &Frame, _ctrl: &Sender<ControlMessage>) {
+        if self.shot_pending {
+            self.screenshot(frame);
+            self.shot_pending = false;
+        }
+    }
+
     fn input(&mut self, input_state: &mut egui::InputState) {
         if input_state.consume_shortcut(&SHORTCUT) {
-            self.screenshot();
+            self.shot_pending = true;
         }
     }
 }
