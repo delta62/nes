@@ -1,6 +1,6 @@
 use crate::mem::Mem;
 use bitflags::bitflags;
-use log::{debug, error, warn};
+use log::{error, warn};
 
 const STROBE_STATE_A: u8 = 0;
 const STROBE_STATE_B: u8 = 1;
@@ -39,7 +39,7 @@ struct Strobe {
 
 impl Strobe {
     fn get(&self) -> u8 {
-        let ret = match self.step {
+        match self.step {
             STROBE_STATE_A => self.buttons.intersects(Buttons::A).into(),
             STROBE_STATE_B => self.buttons.intersects(Buttons::B).into(),
             STROBE_STATE_SELECT => self.buttons.intersects(Buttons::SELECT).into(),
@@ -49,9 +49,7 @@ impl Strobe {
             STROBE_STATE_LEFT => self.buttons.intersects(Buttons::LEFT).into(),
             STROBE_STATE_RIGHT => self.buttons.intersects(Buttons::RIGHT).into(),
             _ => 0x01,
-        };
-        debug!("get / {:?} / {ret}", self.buttons);
-        ret
+        }
     }
 
     fn next(&mut self) {
@@ -96,7 +94,6 @@ impl Mem for Input {
     }
 
     fn loadb(&mut self, addr: u16) -> u8 {
-        debug!("Read from input {addr:04X}");
         match addr {
             0x4016 => {
                 let ret = self.port1.get();

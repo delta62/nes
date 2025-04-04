@@ -44,7 +44,7 @@ impl Mem for CpuBus {
             self.ppu.loadb(addr)
         } else if addr < 0x4016 {
             self.apu.loadb(addr)
-        } else if addr < 4018 {
+        } else if addr < 0x4018 {
             self.input.loadb(addr)
         } else if addr < 0x6000 {
             0
