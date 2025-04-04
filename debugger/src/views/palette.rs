@@ -1,101 +1,128 @@
 use super::View;
-use super::texture::Texture;
-use nes::{Nes, Mem, Rgb};
-use crate::macros::press_alt;
-use glfw::{Key, WindowEvent};
-use imgui::{Image, MenuItem, Ui, Window, im_str};
+use egui::{
+    os::OperatingSystem, Button, Color32, Context, Frame, Grid, KeyboardShortcut, ModifierNames,
+    Window,
+};
+use nes::{ControlMessage, ControlRequest, ControlResponse, EmulationState, PaletteState};
+use std::sync::mpsc::Sender;
+
+const SHORTCUT: KeyboardShortcut = shortcut!(ALT, A);
 
 pub struct PaletteView {
     opened: bool,
-    needs_update: bool,
-    textures: Vec<Texture>,
+    palette: PaletteState,
+    state: EmulationState,
 }
 
 impl PaletteView {
-    pub fn new() -> Self {
-        let opened = true;
-        let needs_update = false;
-        let textures = vec![
-            // Background palette
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
+    pub fn new(state: EmulationState) -> Self {
+        let opened = false;
+        let palette = Default::default();
 
-            // Sprite palette
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-            Texture::new(), Texture::new(), Texture::new(), Texture::new(),
-        ];
-
-        Self { needs_update, opened, textures }
+        Self {
+            opened,
+            palette,
+            state,
+        }
     }
 }
 
-impl View for PaletteView { }
-//     fn main_menu(&mut self, ui: &Ui) {
-//         let toggle = MenuItem::new(im_str!("Palette"))
-//             .shortcut(im_str!("Alt-A"))
-//             .selected(self.opened)
-//             .build(&ui);
-//
-//         if toggle {
-//             self.opened = !self.opened;
-//         }
-//     }
-//
-//     fn window(&mut self, ui: &Ui, _nes: &Nes, _state: &mut EmulationState) {
-//         if !self.opened {
-//             return;
-//         }
-//
-//         let textures = &self.textures;
-//
-//         Window::new(im_str!("Palette"))
-//             .opened(&mut self.opened)
-//             .content_size([ 275.0, 300.0 ])
-//             .always_auto_resize(true)
-//             .build(ui, || {
-//                 ui.text("Background");
-//                 ui.spacing();
-//                 ui.spacing();
-//                 ui.columns(5, im_str!("palette_background"), false);
-//
-//                 for i in 0..4 {
-//                     ui.text(format!("0x{:04X}", 0x3F00 + i * 4));
-//                     ui.next_column();
-//
-//                     for j in 0..4 {
-//                         Image::new(textures[i * 4 + j].id(), [ 24.0, 24.0 ])
-//                             .border_col([ 1.0, 1.0, 1.0, 1.0 ])
-//                             .build(ui);
-//                         ui.next_column();
-//                     }
-//                 }
-//
-//                 ui.columns(1, im_str!("palette_reset"), false);
-//                 ui.spacing();
-//                 ui.spacing();
-//                 ui.text("Sprites");
-//                 ui.spacing();
-//                 ui.spacing();
-//                 ui.columns(5, im_str!("palette_sprites"), false);
-//
-//                 for i in 0..4 {
-//                     ui.text(format!("0x{:04X}", 0x3F10 + i * 4));
-//                     ui.next_column();
-//
-//                     for j in 0..4 {
-//                         Image::new(textures[i * 4 + 16 + j].id(), [ 24.0, 24.0 ])
-//                             .border_col([ 1.0, 1.0, 1.0, 1.0 ])
-//                             .build(ui);
-//                         ui.next_column();
-//                     }
-//                 }
-//             });
-//     }
-//
+impl View for PaletteView {
+    fn init(&mut self, _ctx: &Context, control: &Sender<ControlMessage>) {
+        let req = ControlRequest::PaletteState;
+        let _ = control.send(ControlMessage::ControlRequest(req));
+    }
+
+    fn window(&mut self, ctx: &Context) {
+        let opened = &mut self.opened;
+        let palette = &self.palette;
+
+        Window::new("Palette")
+            .open(opened)
+            .collapsible(false)
+            .fixed_size([275.0, 300.0])
+            .show(ctx, |ui| {
+                ui.label("Background");
+
+                Grid::new("palette-bg").show(ui, |ui| {
+                    if palette.background.len() < 16 {
+                        return;
+                    }
+
+                    for i in 0..4 {
+                        ui.label(format!("0x{:04X}", 0x3f00 + i * 4));
+                        for j in 0..4 {
+                            let rgb = palette.background[i * 4 + j];
+                            let frame = Frame::NONE
+                                .fill(Color32::from_rgb(rgb.r, rgb.g, rgb.b))
+                                .stroke((1.0, Color32::WHITE))
+                                .inner_margin(12.0);
+                            frame.show(ui, |_| {});
+                        }
+                        ui.end_row();
+                    }
+                });
+
+                ui.separator();
+
+                ui.label("Sprites");
+                Grid::new("palette-fg").show(ui, |ui| {
+                    if palette.sprites.len() < 16 {
+                        return;
+                    }
+
+                    for i in 0..4 {
+                        ui.label(format!("0x{:04X}", 0x3f00 + i * 4));
+                        for j in 0..4 {
+                            let rgb = palette.sprites[i * 4 + j];
+                            let frame = Frame::NONE
+                                .fill(Color32::from_rgb(rgb.r, rgb.g, rgb.b))
+                                .stroke((1.0, Color32::WHITE))
+                                .inner_margin(12.0);
+                            frame.show(ui, |_| {});
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+    }
+
+    fn on_state_change(&mut self, state: EmulationState) {
+        self.state = state;
+    }
+
+    fn on_step(&mut self, _log: &str, ctrl: &Sender<nes::ControlMessage>) {
+        if let EmulationState::Run(_) = self.state {
+            return;
+        }
+
+        let req = ControlRequest::PaletteState;
+        let _ = ctrl.send(ControlMessage::ControlRequest(req));
+    }
+
+    fn on_control_response(&mut self, message: &ControlResponse) {
+        if let ControlResponse::PaletteState(state) = message {
+            self.palette = state.clone();
+        }
+    }
+
+    fn main_menu(&mut self, ui: &mut egui::Ui) {
+        let btn = Button::new("Palette").shortcut_text(SHORTCUT.format(
+            &ModifierNames::NAMES,
+            OperatingSystem::from_target_os() == OperatingSystem::Mac,
+        ));
+        if ui.add(btn).clicked() {
+            self.opened = !self.opened;
+        }
+    }
+
+    fn input(&mut self, input_state: &mut egui::InputState) {
+        if input_state.consume_shortcut(&SHORTCUT) {
+            self.opened = !self.opened;
+        }
+    }
+}
+
 //     fn on_step(&mut self, nes: &Nes) {
 //         if !self.needs_update {
 //             return;
@@ -120,16 +147,6 @@ impl View for PaletteView { }
 //             let rgb = Rgb::from_byte(val);
 //
 //             self.textures[x as usize + 16].update(1, 1, &[rgb.r, rgb.g, rgb.b]);
-//         }
-//     }
-//
-//     fn on_frame(&mut self, _frame: &[u8]) {
-//         self.needs_update = true;
-//     }
-//
-//     fn key_event(&mut self, event: &WindowEvent, _state: &mut EmulationState) {
-//         if press_alt(Key::A, event) {
-//             self.opened = !self.opened;
 //         }
 //     }
 // }

@@ -1,0 +1,10 @@
+[package]
+name = "disasm"
+version = "0.0.1"
+authors = ["sam.noedel@gmail.com"]
+edition = "2018"
+description = "AN NES 6502 disassembler"
+publish = false
+
+[dependencies]
+log = "^0.4.14"

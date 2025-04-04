@@ -1,12 +1,7 @@
-use crate::audio::Apu;
-use crate::cpu::Cpu;
-use crate::cpubus::CpuBus;
-use crate::frame_buffer::Frame;
-use crate::input::{Input, InputState};
-use crate::mapper::create_mapper;
-use crate::ppu::Ppu;
-use crate::ram::Ram;
-use crate::rom::Rom;
+use crate::{
+    audio::Apu, cpu::Cpu, cpubus::CpuBus, frame_buffer::Frame, input::Input, mapper::create_mapper,
+    ppu::Ppu, ram::Ram, rom::Rom,
+};
 
 const WRAM_BYTE_SIZE: usize = 0x0800;
 
@@ -35,9 +30,8 @@ impl Nes {
     }
 
     /// Progress emulation by 1 CPU tick
-    pub fn step(&mut self, input: &InputState) -> StepResult {
+    pub fn step(&mut self) -> StepResult {
         self.cpu.step();
-        self.cpu.mem.input.set(input);
         self.cpu.mem.apu.step();
         self.cpu.mem.input.step();
 

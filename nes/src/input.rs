@@ -1,6 +1,6 @@
 use crate::mem::Mem;
 use bitflags::bitflags;
-use log::{error, warn};
+use log::{debug, error, warn};
 
 const STROBE_STATE_A: u8 = 0;
 const STROBE_STATE_B: u8 = 1;
@@ -10,12 +10,6 @@ const STROBE_STATE_UP: u8 = 4;
 const STROBE_STATE_DOWN: u8 = 5;
 const STROBE_STATE_LEFT: u8 = 6;
 const STROBE_STATE_RIGHT: u8 = 7;
-
-#[derive(Debug, PartialEq)]
-pub enum ButtonState {
-    Pressed,
-    Release,
-}
 
 #[derive(Default)]
 pub struct InputState {
@@ -45,7 +39,7 @@ struct Strobe {
 
 impl Strobe {
     fn get(&self) -> u8 {
-        match self.step {
+        let ret = match self.step {
             STROBE_STATE_A => self.buttons.intersects(Buttons::A).into(),
             STROBE_STATE_B => self.buttons.intersects(Buttons::B).into(),
             STROBE_STATE_SELECT => self.buttons.intersects(Buttons::SELECT).into(),
@@ -55,7 +49,9 @@ impl Strobe {
             STROBE_STATE_LEFT => self.buttons.intersects(Buttons::LEFT).into(),
             STROBE_STATE_RIGHT => self.buttons.intersects(Buttons::RIGHT).into(),
             _ => 0x01,
-        }
+        };
+        debug!("get / {:?} / {ret}", self.buttons);
+        ret
     }
 
     fn next(&mut self) {
@@ -77,16 +73,6 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn press(&mut self, buttons: Buttons) {
-        warn!("inputs are hardcoded to port 1");
-        self.port1.buttons |= buttons;
-    }
-
-    pub fn release(&mut self, buttons: Buttons) {
-        warn!("inputs are hardcoded to port 1");
-        self.port1.buttons &= !buttons;
-    }
-
     pub fn set(&mut self, input: &InputState) {
         self.port1.buttons = input.gamepad1.unwrap_or(Buttons::empty());
         self.port2.buttons = input.gamepad2.unwrap_or(Buttons::empty());
@@ -110,6 +96,7 @@ impl Mem for Input {
     }
 
     fn loadb(&mut self, addr: u16) -> u8 {
+        debug!("Read from input {addr:04X}");
         match addr {
             0x4016 => {
                 let ret = self.port1.get();
@@ -131,6 +118,8 @@ impl Mem for Input {
     fn storeb(&mut self, addr: u16, val: u8) {
         if addr == 0x4016 {
             self.strobe_flag = bit!(val, 0);
+        } else {
+            warn!("Unexpected write to input addr {addr:04X}");
         }
     }
 }

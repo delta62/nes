@@ -10,11 +10,10 @@ publish = false
 chrono = "^0.4.19"
 clap = "^2.33.3"
 cpal = "^0.15.3"
+disasm = { path = "../disasm" }
 eframe = "^0.31.1"
-egui = "^0.31.1"
+egui = { version = "^0.31.1", features = ["persistence"] }
 env_logger = "^0.9.0"
-getset = "^0.1.1"
-gl = "^0.14.0"
 log = "^0.4.14"
 nes = { path = "../nes" }
 png = "^0.16.8"

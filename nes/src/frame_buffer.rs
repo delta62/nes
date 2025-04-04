@@ -40,11 +40,6 @@ pub struct FrameBuffer {
 
 impl FrameBuffer {
     pub fn new() -> Self {
-        // Initialize pool with three frames:
-        // - One to be held onto by the PPU and updated live
-        // - One to be held onto by a downstream consumer and painted
-        // - One to be swapped into the PPU as a new buffer when a frame is completed, before it's
-        //   sent to the client and a replacement is returned
         let frames = vec![Frame::new(), Frame::new(), Frame::new()];
         Self { frames }
     }
@@ -53,7 +48,10 @@ impl FrameBuffer {
         self.frames.push(frame);
     }
 
-    pub fn get(&mut self) -> Option<Frame> {
-        self.frames.pop()
+    pub fn get(&mut self) -> Frame {
+        match self.frames.pop() {
+            Some(frame) => frame,
+            None => Frame::new(),
+        }
     }
 }

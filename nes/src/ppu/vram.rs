@@ -14,7 +14,7 @@ impl Vram {
     pub fn new(mapper: ChrMem) -> Vram {
         Vram {
             mapper,
-            nametables: Box::new([0; 0x800]),
+            nametables: Box::new([0; 0x0800]),
             palette: [0; 0x20],
         }
     }

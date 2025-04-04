@@ -1,9 +1,4 @@
-use crate::audio::Apu;
-use crate::input::Input;
-use crate::mapper::PrgMem;
-use crate::mem::Mem;
-use crate::ppu::Ppu;
-use crate::ram::Ram;
+use crate::{audio::Apu, input::Input, mapper::PrgMem, mem::Mem, ppu::Ppu, ram::Ram};
 
 pub struct CpuBus {
     pub ram: Ram,
@@ -31,10 +26,10 @@ impl Mem for CpuBus {
             self.ram.peekb(addr)
         } else if addr < 0x4000 {
             self.ppu.peekb(addr)
-        } else if addr == 0x4016 {
-            self.input.peekb(addr)
-        } else if addr <= 0x4018 {
+        } else if addr < 0x4016 {
             self.apu.peekb(addr)
+        } else if addr < 0x4018 {
+            self.input.peekb(addr)
         } else if addr < 0x6000 {
             0
         } else {
@@ -47,10 +42,10 @@ impl Mem for CpuBus {
             self.ram.loadb(addr)
         } else if addr < 0x4000 {
             self.ppu.loadb(addr)
-        } else if addr == 0x4016 {
-            self.input.loadb(addr)
-        } else if addr <= 0x4018 {
+        } else if addr < 0x4016 {
             self.apu.loadb(addr)
+        } else if addr < 4018 {
+            self.input.loadb(addr)
         } else if addr < 0x6000 {
             0
         } else {
@@ -63,9 +58,11 @@ impl Mem for CpuBus {
             self.ram.storeb(addr, val)
         } else if addr < 0x4000 {
             self.ppu.storeb(addr, val)
+        } else if addr < 0x4016 {
+            self.apu.storeb(addr, val);
         } else if addr == 0x4016 {
             self.input.storeb(addr, val)
-        } else if addr <= 0x4018 {
+        } else if addr == 0x4017 {
             self.apu.storeb(addr, val);
         } else if addr < 0x6000 {
             // nop

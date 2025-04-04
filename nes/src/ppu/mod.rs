@@ -340,6 +340,25 @@ impl Ppu {
         result
     }
 
+    /// For debugging purposes only!
+    /// Set the PPU's internal cycle count, current pixel, and frame from a CPU cycle count
+    ///
+    /// This cannot be done accurately, because the number of cycles in one PPU frame depends
+    /// on whether rendering was enabled during that time (and if so, for how many cycles).
+    /// Thus, this function is mostly only helpful for initializing the PPU during debugging
+    /// sessions. The nes emulation code never calls this directly.
+    pub fn set_cycle_from_cpu(&mut self, cpu_cycle: u64) {
+        // This isn't exact; it's the number of cycles in a frame assuming rendering is off.
+        const CYCLES_PER_FRAME: u64 = 89342;
+
+        let ppu_cycle = cpu_cycle * 3;
+        let ppu_frame = ppu_cycle / CYCLES_PER_FRAME;
+        let ppu_pixel = ppu_cycle % CYCLES_PER_FRAME;
+        self.pos.frame = ppu_frame;
+        self.pos.pixel = ppu_pixel as u16;
+        self.pos.cycle = ppu_cycle;
+    }
+
     fn fetch_nametable(&mut self) -> u8 {
         let tile_addr = self.vtwx.tile_addr();
         self.vram.loadb(tile_addr)
@@ -399,7 +418,8 @@ impl Ppu {
         let fine_y = if sprite_y > line {
             0
         } else if mirror_y {
-            7 - (line - sprite_y)
+            // TODO: should this be saturating? Does it matter?
+            7u16.saturating_sub(line - sprite_y)
         } else {
             line - sprite_y
         };

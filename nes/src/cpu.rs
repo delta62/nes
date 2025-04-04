@@ -647,8 +647,8 @@ impl<M: Mem + Send> Cpu<M> {
     /// two the effective address range for the target instruction must be with
     /// -126 to +129 bytes of the branch.
     fn rel(&mut self, _extra: bool) -> Address {
-        let delta: i32 = self.loadb_bump_pc().into();
-        let addr = delta + self.pc as i32;
+        let delta = self.loadb_bump_pc() as i8;
+        let addr = delta as i32 + self.pc as i32;
         Address::Absolute(addr as u16)
     }
 
@@ -1381,13 +1381,13 @@ impl<M: Mem + Send> Cpu<M> {
 
     fn loadb_bump_pc(&mut self) -> u8 {
         let val = self.loadb(self.pc);
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         val
     }
 
     fn loadw_bump_pc(&mut self) -> u16 {
         let val = self.loadw(self.pc);
-        self.pc += 2;
+        self.pc = self.pc.wrapping_add(2);
         val
     }
 

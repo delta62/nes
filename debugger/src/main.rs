@@ -1,7 +1,6 @@
-// mod disasm;
-// mod logging;
 #[macro_use]
 mod macros;
+
 mod romloader;
 mod views;
 mod window;
@@ -43,7 +42,7 @@ fn main() {
 
     env_logger::builder()
         .format_timestamp(None)
-        .filter_level(LevelFilter::Info)
+        .filter_level(LevelFilter::Debug)
         .init();
 
     let path = matches.value_of("rom").unwrap();
@@ -51,11 +50,12 @@ fn main() {
     let arecord = matches.is_present("arecord");
 
     let rom = RomLoader::load(path).unwrap();
+    let header = rom.header.clone();
     let (send_control, receive_control) = channel();
     let (send_frame, receive_frame) = channel();
 
     let native_options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default().with_min_inner_size([1280.0, 720.0]),
+        viewport: ViewportBuilder::default().with_inner_size([1920.0, 1080.0]),
         ..Default::default()
     };
 
@@ -70,6 +70,8 @@ fn main() {
                 nes::EmulationState::Pause,
                 send_control,
                 receive_frame,
+                header,
+                path,
                 record,
                 arecord,
             )))

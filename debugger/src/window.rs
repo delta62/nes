@@ -1,21 +1,25 @@
 use crate::views::{
     CpuView,
     DebugView,
-    // LogView,
+    LogView,
     // NametableView,
     NesView,
     // OamView,
-    // PaletteView,
-    // PatternView,
+    PaletteView,
+    PatternView,
     PpuView,
     // RecordView,
     // AudioRecordView,
+    RomView,
     ScreenshotView,
     View,
 };
 use egui::{Button, KeyboardShortcut};
-use nes::{ControlMessage, EmulationState, VideoMessage};
-use std::sync::mpsc::{Receiver, Sender};
+use nes::{ControlMessage, EmulationState, INesHeader, VideoMessage};
+use std::{
+    path::PathBuf,
+    sync::mpsc::{Receiver, Sender},
+};
 
 const QUIT_SHORTCUT: KeyboardShortcut = shortcut!(CTRL, Q);
 
@@ -37,7 +41,7 @@ impl eframe::App for DebuggerWindow {
             let views = &mut self.views;
             let ctrl = &self.send_control;
 
-            views.iter_mut().for_each(|view| view.init(ctrl));
+            views.iter_mut().for_each(|view| view.init(ctx, ctrl));
             self.first_update = false;
         }
 
@@ -84,6 +88,13 @@ impl eframe::App for DebuggerWindow {
                         .iter_mut()
                         .for_each(|v| v.on_state_change(new_state));
                 }
+                Ok(VideoMessage::CpuStep(log_line)) => {
+                    let views = &mut self.views;
+                    let send_control = &self.send_control;
+                    views
+                        .iter_mut()
+                        .for_each(|v| v.on_step(log_line.as_ref(), send_control));
+                }
                 Err(_) => break,
             }
         }
@@ -92,31 +103,38 @@ impl eframe::App for DebuggerWindow {
             ctx.input_mut(|input| view.input(input));
             view.window(ctx);
         }
+
+        ctx.request_repaint();
     }
 }
 
 impl DebuggerWindow {
-    pub fn new(
+    pub fn new<P: Into<PathBuf>>(
         initial_state: EmulationState,
         send_control: Sender<ControlMessage>,
         receive_frame: Receiver<VideoMessage>,
+        rom_header: INesHeader,
+        rom_path: P,
         _record: bool,
         _arecord: bool,
     ) -> Self {
         let first_update = true;
         let views: Vec<Box<dyn View>> = vec![
-            Box::new(CpuView::new(initial_state)),
-            Box::new(DebugView::new(send_control.clone())),
-            Box::new(NesView::new()),
+            Box::new(CpuView::new(initial_state, send_control.clone())),
+            Box::new(NesView::new(send_control.clone())),
             Box::new(PpuView::new(initial_state)),
-            // Box::new(LogView::new()),
-            // Box::new(PaletteView::new()),
+            Box::new(LogView::new(send_control.clone())),
+            Box::new(RomView::new(rom_path, rom_header)),
             Box::new(ScreenshotView::new()),
+            Box::new(PatternView::new(initial_state)),
+            Box::new(PaletteView::new(initial_state)),
             // Box::new(NametableView::new()),
-            // Box::new(PatternView::new()),
             // Box::new(RecordView::new(record)),
             // Box::new(AudioRecordView::new(arecord)),
             // Box::new(OamView::new()),
+
+            // Last, because step shortcuts will eat ALT- prefixed keycodes otherwise
+            Box::new(DebugView::new(send_control.clone())),
         ];
 
         Self {

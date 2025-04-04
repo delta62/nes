@@ -36,7 +36,7 @@ type SplitRom = (ChrMem, PrgMem);
 
 /// Given a ROM, create a mapper that can read & write data with it
 pub fn create_mapper(rom: Rom) -> SplitRom {
-    match rom.header.ines_mapper() {
+    match rom.header.mapper() {
         0 => nrom(rom),
         x => panic!("Unsupported mapper {}", x),
     }
