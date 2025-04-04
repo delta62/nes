@@ -1,8 +1,9 @@
 mod nrom;
-// mod uxrom;
+mod uxrom;
 
 use crate::{rom::Rom, Mem};
 use nrom::nrom;
+use uxrom::uxrom;
 
 pub struct PrgMem(pub Box<dyn Mem + Send>);
 
@@ -38,6 +39,7 @@ type SplitRom = (ChrMem, PrgMem);
 pub fn create_mapper(rom: Rom) -> SplitRom {
     match rom.header.mapper() {
         0 => nrom(rom),
+        2 => uxrom(rom),
         x => panic!("Unsupported mapper {}", x),
     }
 }

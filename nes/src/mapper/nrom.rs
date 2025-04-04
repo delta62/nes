@@ -1,7 +1,7 @@
 use super::{ChrMem, PrgMem};
 use crate::{rom::Rom, Mem};
 
-const PRG_ROM_BANK_LEN: usize = 16384; // 16KiB
+const PRG_ROM_BANK_LEN: usize = 0x4000; // 16KiB
 
 pub struct Chr(Vec<u8>);
 
