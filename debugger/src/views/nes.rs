@@ -1,5 +1,5 @@
 use super::View;
-use egui::{Color32, ColorImage, Context, CornerRadius, Image, Key, TextureOptions, Ui, Vec2};
+use egui::{Color32, ColorImage, Context, CornerRadius, Image, Key, TextureOptions, Vec2};
 use nes::{Buttons, ControlMessage, Frame};
 use std::{
     collections::VecDeque,
@@ -12,7 +12,6 @@ const SCREEN_WIDTH: usize = 256;
 const SCREEN_HEIGHT: usize = 240;
 
 pub struct NesView {
-    attr_overlay: bool,
     texture: Option<egui::TextureHandle>,
     sender: Sender<ControlMessage>,
     fps_samples: VecDeque<Instant>,
@@ -20,41 +19,15 @@ pub struct NesView {
 
 impl NesView {
     pub fn new(sender: Sender<ControlMessage>) -> Self {
-        let attr_overlay = false;
         let texture = None;
         let fps_samples = VecDeque::with_capacity(60);
 
         Self {
-            attr_overlay,
             sender,
             texture,
             fps_samples,
         }
     }
-
-    // fn repaint(&mut self) {
-    //     if self.attr_overlay {
-    //         // vertical line
-    //         for r in 0..16 {
-    //             for c in 0..240 {
-    //                 let addr = r * 16 * 3 + c * 256 * 3;
-    //                 self.last_frame[addr + 0] = 0x02;
-    //                 self.last_frame[addr + 1] = 0x08;
-    //                 self.last_frame[addr + 2] = 0xA0;
-    //             }
-    //         }
-
-    //         // horizontal line
-    //         for c in 0..15 {
-    //             for r in 0..256 {
-    //                 let addr = r * 3 + c * 256 * 3 * 16;
-    //                 self.last_frame[addr + 0] = 0x02;
-    //                 self.last_frame[addr + 1] = 0x08;
-    //                 self.last_frame[addr + 2] = 0xA0;
-    //             }
-    //         }
-    //     };
-    // }
 
     fn calculate_fps(&self) -> f32 {
         self.fps_samples.len() as f32 / FPS_SAMPLE_SECONDS
@@ -93,16 +66,6 @@ impl View for NesView {
             });
     }
 
-    fn custom_menu(&mut self, ui: &mut Ui, _ctx: &Context) {
-        ui.menu_button("Picture", |ui| {
-            let button = egui::Button::new("Attribute Table Grid").selected(self.attr_overlay);
-
-            if ui.add(button).clicked() {
-                self.attr_overlay = !self.attr_overlay;
-            }
-        });
-    }
-
     fn on_frame(&mut self, frame: &Frame, _ctrl: &Sender<ControlMessage>) {
         let now = Instant::now();
         self.fps_samples.push_back(now);
@@ -116,9 +79,9 @@ impl View for NesView {
         }
 
         let image = ColorImage::from_rgb([SCREEN_WIDTH, SCREEN_HEIGHT], frame.as_ref());
-        self.texture.as_mut().map(|tex| {
+        if let Some(tex) = self.texture.as_mut() {
             tex.set(image, TextureOptions::NEAREST);
-        });
+        };
     }
 
     fn input(&mut self, input_state: &mut egui::InputState) {
@@ -137,10 +100,10 @@ impl View for NesView {
             buttons |= Buttons::RIGHT;
         }
 
-        if input_state.key_down(Key::Comma) {
+        if input_state.key_down(Key::Z) {
             buttons |= Buttons::A;
         }
-        if input_state.key_down(Key::Period) {
+        if input_state.key_down(Key::X) {
             buttons |= Buttons::B;
         }
         if input_state.key_down(Key::Backspace) {

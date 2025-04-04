@@ -73,7 +73,7 @@ impl View for CpuView {
                     ui.label("Cycle");
                     let cy = TextEdit::singleline(cpu_cycle);
                     if (ui.add(cy)).changed() {
-                        if let Ok(cycle_count) = u64::from_str_radix(cpu_cycle, 10) {
+                        if let Ok(cycle_count) = cpu_cycle.parse::<u64>() {
                             let msg = ControlMessage::SetCpuCycles(cycle_count);
                             let _ = ctrl.send(msg);
                         }
@@ -83,7 +83,7 @@ impl View for CpuView {
                     ui.label("PC").on_hover_text("Program Counter");
                     let pc = TextEdit::singleline(pc_addr);
                     if ui.add(pc).changed() {
-                        if let Ok(addr) = u16::from_str_radix(&pc_addr, 16) {
+                        if let Ok(addr) = u16::from_str_radix(pc_addr, 16) {
                             let msg = ControlMessage::SetProgramCounter(addr);
                             let _ = ctrl.send(msg);
                         }

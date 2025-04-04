@@ -14,6 +14,12 @@ impl Frame {
     }
 }
 
+impl Default for Frame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AsRef<[u8; SCREEN_BYTES_RGB]> for Frame {
     fn as_ref(&self) -> &[u8; SCREEN_BYTES_RGB] {
         self.frame.as_ref()

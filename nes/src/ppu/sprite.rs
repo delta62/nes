@@ -58,13 +58,13 @@ impl SpriteShift {
         let hi: u8;
 
         if self.mirror_x() {
-            lo = bitn!(self.shift_lo, 0) << 0;
+            lo = bitn!(self.shift_lo, 0);
             hi = bitn!(self.shift_hi, 0) << 1;
 
             self.shift_lo >>= 1;
             self.shift_hi >>= 1;
         } else {
-            lo = bitn!(self.shift_lo, 7) << 0;
+            lo = bitn!(self.shift_lo, 7);
             hi = bitn!(self.shift_hi, 7) << 1;
 
             self.shift_lo <<= 1;

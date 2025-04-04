@@ -53,16 +53,16 @@ impl Address {
         }
 
         match op % 0x20 {
-            0x0C | 0x0D | 0x0E | 0x0F => Address::Absolute(addr16),
-            0x1C | 0x1D | 0x1E | 0x1F => Address::AbsoluteX(addr16),
+            0x0C..=0x0F => Address::Absolute(addr16),
+            0x1C..=0x1F => Address::AbsoluteX(addr16),
             0x19 | 0x1B => Address::AbsoluteY(addr16),
             0x00 | 0x02 | 0x09 | 0x0B => Address::Immediate(lo),
             0x08 | 0x0A | 0x12 | 0x18 | 0x1A => Address::Implied,
             0x01 | 0x03 => Address::IndirectX(lo),
             0x11 | 0x13 => Address::IndirectY(lo),
             0x10 => Address::Relative(lo as i8),
-            0x04 | 0x05 | 0x06 | 0x07 => Address::ZeroPage(lo),
-            0x14 | 0x15 | 0x16 | 0x17 => Address::ZeroPageX(lo),
+            0x04..=0x07 => Address::ZeroPage(lo),
+            0x14..=0x17 => Address::ZeroPageX(lo),
             _ => unreachable!(),
         }
     }
@@ -72,7 +72,7 @@ impl Address {
         Self::Absolute(addr16)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn byte_len(&self) -> usize {
         use Address::*;
         match self {
             Absolute(_) => 2,

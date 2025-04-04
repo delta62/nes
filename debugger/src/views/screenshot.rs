@@ -28,7 +28,7 @@ impl ScreenshotView {
         let path = now.format("screenshot-%Y-%m-%d-%H-%M-%S.png").to_string();
         let path = Path::new(&path);
         let file = File::create(path).unwrap();
-        let ref mut w = BufWriter::new(file);
+        let w = &mut BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, 256, 240);
 
         encoder.set_color(png::ColorType::RGB);

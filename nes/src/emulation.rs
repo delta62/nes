@@ -100,14 +100,14 @@ fn handle_control_message(
                 for x in 0..16 {
                     let addr = 0x3F00 + x;
                     let val = vram.peekb(addr);
-                    let rgb = Rgb::from_byte(val).clone();
+                    let rgb = *Rgb::from_byte(val);
                     background.push(rgb);
                 }
 
                 for x in 0..16 {
                     let addr = 0x3F10 + x;
                     let val = vram.peekb(addr);
-                    let rgb = Rgb::from_byte(val).clone();
+                    let rgb = *Rgb::from_byte(val);
                     sprites.push(rgb);
                 }
 
@@ -141,7 +141,7 @@ fn handle_control_message(
 
                 for i in 0..256 {
                     for row in 0..8 {
-                        let addr = 0000 + i * 16 + row;
+                        let addr = i * 16 + row;
                         let pattern_lo = vram.peekb(addr);
                         let pattern_hi = vram.peekb(addr + 8);
 
@@ -155,7 +155,7 @@ fn handle_control_message(
                             let addr = (row_addr + col * 3) as usize;
                             let color = pattern * 75;
 
-                            table1[addr + 0] = color;
+                            table1[addr] = color;
                             table1[addr + 1] = color;
                             table1[addr + 2] = color;
                         }
@@ -178,7 +178,7 @@ fn handle_control_message(
                             let addr = (row_addr + col * 3) as usize;
                             let color = pattern * 75;
 
-                            table2[addr + 0] = color;
+                            table2[addr] = color;
                             table2[addr + 1] = color;
                             table2[addr + 2] = color;
                         }
@@ -197,9 +197,9 @@ fn handle_control_message(
                     scanline: ppu.scanline(),
                     pixel: ppu.pixel(),
 
-                    ctrl: ppu.ppuctrl.clone(),
-                    mask: ppu.ppumask.clone(),
-                    status: ppu.ppustatus.clone(),
+                    ctrl: ppu.ppuctrl,
+                    mask: ppu.ppumask,
+                    status: ppu.ppustatus,
                     addr: 0,
                     data: 0,
                     oamaddr: ppu.oam.addr(),
@@ -303,9 +303,9 @@ pub fn run(
             move |a: &mut [f32], _b| {
                 let samples_to_collect = a.len();
 
-                for i in 0..samples_to_collect {
+                for frame in a.iter_mut().take(samples_to_collect) {
                     let sample = signal.next();
-                    a[i] = sample;
+                    *frame = sample;
                 }
             },
             |err| panic!("Error playing audio: {:?}", err),
@@ -319,7 +319,6 @@ fn get_output_device() -> Option<Device> {
 
     host.output_devices()
         .unwrap()
-        .into_iter()
         .filter_map(|device| {
             let devname = device.name().ok()?;
 

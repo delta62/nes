@@ -1,4 +1,5 @@
 pub use crate::{address::Address, operation::Op};
+use std::cmp::Ordering;
 
 pub const PRG_ROM_BASE: usize = 0x4020;
 
@@ -33,6 +34,10 @@ impl Disassembler {
         self.ops.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.ops.is_empty()
+    }
+
     /// Returns the index of the given address in ROM, or the address of the prior op if no
     /// operation falls on the given address.
     ///
@@ -46,12 +51,10 @@ impl Disassembler {
             let mid = lo + ((hi - lo) / 2);
             let mid_val = self.ops[mid].0;
 
-            if addr < mid_val {
-                hi = mid - 1;
-            } else if addr > mid_val {
-                lo = mid + 1;
-            } else {
-                return mid;
+            match addr.cmp(&mid_val) {
+                Ordering::Less => hi = mid - 1,
+                Ordering::Equal => return mid,
+                Ordering::Greater => lo += mid + 1,
             }
         }
 
@@ -88,7 +91,7 @@ fn parse_ops(src: &[u8]) -> Vec<Option<AddressOrOp>> {
             continue;
         }
 
-        let op = src_addr(src, root + 0);
+        let op = src_addr(src, root);
         let lo = src_addr(src, root + 1);
         let hi = src_addr(src, root + 2);
 
@@ -101,8 +104,14 @@ fn parse_ops(src: &[u8]) -> Vec<Option<AddressOrOp>> {
         }
 
         let (next1, next2) = op.next_addresses(root);
-        next1.map(|next| roots.push(next));
-        next2.map(|next| roots.push(next));
+
+        if let Some(next) = next1 {
+            roots.push(next);
+        }
+
+        if let Some(next) = next2 {
+            roots.push(next);
+        }
     }
 
     ret

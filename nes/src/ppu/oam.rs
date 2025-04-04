@@ -25,6 +25,12 @@ pub struct Oam {
     tick_state: TickState,
 }
 
+impl Default for Oam {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Oam {
     pub fn new() -> Self {
         Self {

@@ -85,7 +85,7 @@ fn fmt_op_addr<M: Mem + Send>(op: &Op, cpu: &Cpu<M>) -> String {
             )
         }
     };
-    let extra = fmt_op_extra(&op, cpu);
+    let extra = fmt_op_extra(op, cpu);
 
     format!("{}{}", addr, extra)
 }

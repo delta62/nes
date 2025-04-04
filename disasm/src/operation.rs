@@ -306,13 +306,14 @@ impl Op {
 
     pub fn byte_len(&self) -> usize {
         // opcode byte + addr
-        self.addr.len() + 1
+        self.addr.byte_len() + 1
     }
 
     /// Each opcode may result in control flow going to 0-2 other instructions. For example:
     /// - STP will never go anywhere else
     /// - JMP will always go to one location
     /// - BNE might go to one of two different locations
+    ///
     /// This function resolves the next locations in memory (if any) that control flow will
     /// go and returns them as a tuple. If there are two next locations, the order of locations
     /// in the tuple is undefined.
@@ -357,7 +358,7 @@ impl Op {
                 if let Address::Relative(offset) = self.addr {
                     let next = from + self.byte_len();
                     let jump_target = if offset.is_negative() {
-                        let offset = (offset * -1) as u16;
+                        let offset = -offset as u16;
                         let from = from as u16 + 2;
                         from.wrapping_sub(offset)
                     } else {

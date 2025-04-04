@@ -28,7 +28,7 @@ impl PatternShifter {
     }
 
     pub fn attr_val(&self, fine_x: u8) -> u8 {
-        let lo = bitn!(self.attribute_lo, 15 - fine_x) << 0;
+        let lo = bitn!(self.attribute_lo, 15 - fine_x);
         let hi = bitn!(self.attribute_hi, 15 - fine_x) << 1;
 
         (lo + hi) as u8
@@ -50,7 +50,7 @@ impl PatternShifter {
     }
 
     pub fn pattern_val(&self, fine_x: u8) -> u8 {
-        let lo = bitn!(self.pattern_lo, 15 - fine_x) << 0;
+        let lo = bitn!(self.pattern_lo, 15 - fine_x);
         let hi = bitn!(self.pattern_hi, 15 - fine_x) << 1;
 
         (lo + hi) as u8

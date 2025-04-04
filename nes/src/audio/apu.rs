@@ -1,5 +1,3 @@
-use crate::mem::Mem;
-use log::warn;
 use super::channel::Channel;
 use super::dmc::Dmc;
 use super::frame_counter::FrameCounter;
@@ -7,6 +5,8 @@ use super::mixer::Mixer;
 use super::noise::Noise;
 use super::square::Square;
 use super::triangle::Triangle;
+use crate::mem::Mem;
+use log::warn;
 
 pub struct ApuState {
     pub square1: u8,
@@ -97,6 +97,12 @@ impl Apu {
     }
 }
 
+impl Default for Apu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Mem for Apu {
     fn peekb(&self, addr: u16) -> u8 {
         if addr != 0x4015 {
@@ -104,11 +110,11 @@ impl Mem for Apu {
             return 0;
         }
 
-        let sq1 =   if self.square1.is_running()  { 0x01 } else { 0 };
-        let sq2 =   if self.square2.is_running()  { 0x02 } else { 0 };
-        let tri =   if self.triangle.is_running() { 0x04 } else { 0 };
-        let noise = if self.noise.is_running()    { 0x08 } else { 0 };
-        let dmc =   if self.dmc.is_running()      { 0x10 } else { 0 };
+        let sq1 = if self.square1.is_running() { 0x01 } else { 0 };
+        let sq2 = if self.square2.is_running() { 0x02 } else { 0 };
+        let tri = if self.triangle.is_running() { 0x04 } else { 0 };
+        let noise = if self.noise.is_running() { 0x08 } else { 0 };
+        let dmc = if self.dmc.is_running() { 0x10 } else { 0 };
 
         dmc | noise | tri | sq2 | sq1
     }
@@ -154,7 +160,7 @@ impl Mem for Apu {
             0x4015 => self.update_flags(val),
             // Frame counter
             0x4017 => self.frame_counter.update(val),
-            _      => unreachable!(),
+            _ => unreachable!(),
         }
     }
 }

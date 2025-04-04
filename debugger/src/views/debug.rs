@@ -116,20 +116,17 @@ impl View for DebugView {
                     ui.label("0x");
                     let jump_edit = TextEdit::singleline(jump_addr).desired_width(50.0);
                     if ui.add(jump_edit).labelled_by(jump_label.id).lost_focus() {
-                        match u16::from_str_radix(jump_addr, 16) {
-                            Ok(addr) => {
-                                disasm.as_ref().map(|disasm| {
+                        if let Ok(addr) = u16::from_str_radix(jump_addr, 16) {
+                            if let Some(disasm) = disasm.as_ref() {
                                     *scroll_to = Some(disasm.index_of(addr));
-                                });
                             }
-                            Err(_) => {}
                         }
                     }
 
                     if ui.button("Jump to PC").clicked() {
-                        disasm.as_ref().map(|disasm| {
+                        if let Some(disasm) = disasm.as_ref() {
                             *scroll_to = Some(disasm.index_of(current_pc));
-                        });
+                        };
                     }
 
                     ui.checkbox(breakpoints_enabled, "Enable breakpoints");

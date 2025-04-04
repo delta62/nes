@@ -2,11 +2,11 @@
 // The CPU clocks at twice the speed of the APU, but using APU
 // increments results in half step actions
 
-const CLOCK_ONE:   u16 =  7_457;
-const CLOCK_TWO:   u16 = 14_913;
+const CLOCK_ONE: u16 = 7_457;
+const CLOCK_TWO: u16 = 14_913;
 const CLOCK_THREE: u16 = 22_371;
-const CLOCK_FOUR:  u16 = 29_829;
-const CLOCK_FIVE:  u16 = 37_281;
+const CLOCK_FOUR: u16 = 29_829;
+const CLOCK_FIVE: u16 = 37_281;
 
 enum SequencerMode {
     FourStep,
@@ -19,7 +19,7 @@ pub struct FrameCounterResult {
     pub irq: bool,
 }
 
-pub struct FrameCounter{
+pub struct FrameCounter {
     cycle: u16,
     irq_flag: bool,
     irq_inhibit: bool,
@@ -62,7 +62,7 @@ impl FrameCounter {
     }
 
     fn step4(&mut self) -> FrameCounterResult {
-        self.cycle = self.cycle % (CLOCK_FOUR + 1);
+        self.cycle %= CLOCK_FOUR + 1;
 
         if self.cycle == CLOCK_FOUR && !self.irq_inhibit {
             self.irq_flag = true;
@@ -71,25 +71,65 @@ impl FrameCounter {
         let irq = self.irq_flag;
 
         match self.cycle {
-            CLOCK_ONE   => FrameCounterResult { quarter_frame: true,  half_frame: false, irq },
-            CLOCK_TWO   => FrameCounterResult { quarter_frame: true,  half_frame: true,  irq },
-            CLOCK_THREE => FrameCounterResult { quarter_frame: true,  half_frame: false, irq },
-            CLOCK_FOUR  => FrameCounterResult { quarter_frame: true,  half_frame: true,  irq },
-            _           => FrameCounterResult { quarter_frame: false, half_frame: false, irq },
+            CLOCK_ONE => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: false,
+                irq,
+            },
+            CLOCK_TWO => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: true,
+                irq,
+            },
+            CLOCK_THREE => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: false,
+                irq,
+            },
+            CLOCK_FOUR => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: true,
+                irq,
+            },
+            _ => FrameCounterResult {
+                quarter_frame: false,
+                half_frame: false,
+                irq,
+            },
         }
     }
 
     fn step5(&mut self, clock_quarter_half: bool) -> FrameCounterResult {
-        self.cycle = self.cycle % (CLOCK_FIVE + 1);
+        self.cycle %= CLOCK_FIVE + 1;
 
         let irq = self.irq_flag;
 
         match self.cycle {
-            CLOCK_ONE   => FrameCounterResult { quarter_frame: true,  half_frame: clock_quarter_half, irq },
-            CLOCK_TWO   => FrameCounterResult { quarter_frame: true,  half_frame: true,  irq },
-            CLOCK_THREE => FrameCounterResult { quarter_frame: true,  half_frame: clock_quarter_half, irq },
-            CLOCK_FIVE  => FrameCounterResult { quarter_frame: true,  half_frame: true,  irq },
-            _           => FrameCounterResult { quarter_frame: clock_quarter_half, half_frame: clock_quarter_half, irq },
+            CLOCK_ONE => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: clock_quarter_half,
+                irq,
+            },
+            CLOCK_TWO => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: true,
+                irq,
+            },
+            CLOCK_THREE => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: clock_quarter_half,
+                irq,
+            },
+            CLOCK_FIVE => FrameCounterResult {
+                quarter_frame: true,
+                half_frame: true,
+                irq,
+            },
+            _ => FrameCounterResult {
+                quarter_frame: clock_quarter_half,
+                half_frame: clock_quarter_half,
+                irq,
+            },
         }
     }
 
@@ -163,12 +203,20 @@ mod tests {
         fc.update(0x80);
 
         for _ in 0..2 {
-            let FrameCounterResult { quarter_frame, half_frame, .. } = fc.step();
+            let FrameCounterResult {
+                quarter_frame,
+                half_frame,
+                ..
+            } = fc.step();
             assert!(!quarter_frame);
             assert!(!half_frame);
         }
 
-        let FrameCounterResult { quarter_frame, half_frame, .. } = fc.step();
+        let FrameCounterResult {
+            quarter_frame,
+            half_frame,
+            ..
+        } = fc.step();
         assert!(quarter_frame);
         assert!(half_frame);
     }
@@ -196,12 +244,20 @@ mod tests {
         fc.update(0x80);
 
         for _ in 0..3 {
-            let FrameCounterResult { quarter_frame, half_frame, .. } = fc.step();
+            let FrameCounterResult {
+                quarter_frame,
+                half_frame,
+                ..
+            } = fc.step();
             assert!(!quarter_frame);
             assert!(!half_frame);
         }
 
-        let FrameCounterResult { quarter_frame, half_frame, .. } = fc.step();
+        let FrameCounterResult {
+            quarter_frame,
+            half_frame,
+            ..
+        } = fc.step();
         assert!(quarter_frame);
         assert!(half_frame);
     }

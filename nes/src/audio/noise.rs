@@ -4,8 +4,7 @@ use super::length::LengthCounter;
 use super::timer::Timer;
 
 const LENGTH_LOOKUP: [u16; 16] = [
-      4,   8,  16,  32,  64,   96,  128,  160,
-    202, 254, 380, 508, 762, 1016, 2034, 4068,
+    4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ];
 
 pub struct Noise {
@@ -96,9 +95,7 @@ struct NoiseShift {
 
 impl NoiseShift {
     fn new() -> Self {
-        Self {
-            val: 1,
-        }
+        Self { val: 1 }
     }
 
     fn shift_right(&mut self, bit6: bool) {
@@ -107,7 +104,7 @@ impl NoiseShift {
         } else {
             bitn!(self.val, 1)
         };
-        let feedback = (feedback_bit ^ bitn!(self.val, 0)) << 14;
+        let feedback = (feedback_bit ^ (bitn!(self.val, 0))) << 14;
 
         self.val >>= 1;
         self.val |= feedback;

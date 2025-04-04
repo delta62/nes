@@ -267,7 +267,7 @@ impl Ppu {
                 self.vtwx.increment_v();
             } else if inc_scrollh_cycle(px) {
                 self.vtwx.increment_h();
-            } else if is_prerender_line && px >= 280 && px <= 304 {
+            } else if is_prerender_line && (280..=304).contains(&px) {
                 self.vtwx.copy_v();
             } else if px == 257 {
                 self.vtwx.copy_h();
@@ -331,7 +331,7 @@ impl Ppu {
             }
         }
 
-        if px >= 2 && px <= 257 || px >= 322 && px <= 337 {
+        if (2..=257).contains(&px) || (332..=337).contains(&px) {
             self.shifter.shift();
         }
 
@@ -370,7 +370,7 @@ impl Ppu {
         let attr_byte = self.vram.loadb(attr_addr);
 
         match quadrant {
-            0x00 => (attr_byte & 0x03) >> 0, // top left
+            0x00 => attr_byte & 0x03,        // top left
             0x01 => (attr_byte & 0x0C) >> 2, // top right
             0x02 => (attr_byte & 0x30) >> 4, // bottom left
             0x03 => (attr_byte & 0xC0) >> 6, // bottom right
@@ -520,7 +520,7 @@ impl Ppu {
         let c = px as usize;
         let base_output_addr = (r * 256 * 3) + (c * 3);
 
-        self.screen[base_output_addr + 0] = color.r;
+        self.screen[base_output_addr] = color.r;
         self.screen[base_output_addr + 1] = color.g;
         self.screen[base_output_addr + 2] = color.b;
     }

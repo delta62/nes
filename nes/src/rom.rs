@@ -26,8 +26,8 @@ impl From<io::Error> for RomLoadError {
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum RomRegion {
-    PAL,
-    NTSC,
+    Pal,
+    Ntsc,
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -92,7 +92,7 @@ impl INesHeader {
     }
 
     pub fn ines_version(&self) -> INesVersion {
-        if self.flags_7 & 0b1100 == 2 {
+        if (self.flags_7 & 0b1100) >> 2 == 2 {
             INesVersion::INes2
         } else {
             INesVersion::INes1
@@ -129,9 +129,9 @@ impl INesHeader {
 
     pub fn region(&self) -> RomRegion {
         if self.flags_9 & 1 == 1 {
-            RomRegion::PAL
+            RomRegion::Pal
         } else {
-            RomRegion::NTSC
+            RomRegion::Ntsc
         }
     }
 }

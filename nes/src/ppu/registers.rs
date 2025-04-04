@@ -322,8 +322,8 @@ impl Vtwx {
     pub fn attr_addr(&self) -> u16 {
         let at_base = 0x23C0;
         let nt_base = self.v & 0x0C00;
-        let course_y_hi = self.v >> 4 & 0x38;
-        let course_x_hi = self.v >> 2 & 0x07;
+        let course_y_hi = (self.v >> 4) & 0x38;
+        let course_x_hi = (self.v >> 2) & 0x07;
 
         at_base | nt_base | course_y_hi | course_x_hi
     }
